@@ -255,26 +255,6 @@ Filter the final calculated retry delay.
 add_filter( 'wpwf_retry_delay', fn() => 300 );
 ```
 
-### `wpwf_webhook_enabled`
-
-Filter whether a webhook is enabled.
-
-**Parameters:**
-- `$enabled` (bool) - Whether enabled
-- `$webhook_name` (string) - The webhook name
-
-**Returns:** bool
-
-```php
-// Disable during maintenance
-add_filter( 'wpwf_webhook_enabled', function ( bool $enabled, string $webhook_name ): bool {
-    if ( defined( 'WP_MAINTENANCE_MODE' ) && WP_MAINTENANCE_MODE ) {
-        return false;
-    }
-    return $enabled;
-}, 10, 2 );
-```
-
 ## Payload Structure
 
 Standard payload sent with all webhooks:

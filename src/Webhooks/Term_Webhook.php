@@ -44,10 +44,6 @@ class Term_Webhook extends Webhook {
 	 * Initialize the webhook by registering WordPress hooks.
 	 */
 	public function init(): void {
-		if ( ! $this->is_enabled() ) {
-			return;
-		}
-
 		add_action( 'created_term', array( $this, 'on_created_term' ), 10, 3 );
 		add_action( 'edited_term', array( $this, 'on_edited_term' ), 10, 3 );
 		add_action( 'delete_term', array( $this, 'on_deleted_term' ), 10, 3 );

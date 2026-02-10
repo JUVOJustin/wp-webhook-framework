@@ -47,10 +47,6 @@ class Meta_Webhook extends Webhook {
 	 * Initialize the webhook by registering WordPress hooks.
 	 */
 	public function init(): void {
-		if ( ! $this->is_enabled() ) {
-			return;
-		}
-
 		add_action( 'deleted_post_meta', array( $this, 'on_deleted_post_meta' ), 10, 4 );
 		add_action( 'deleted_term_meta', array( $this, 'on_deleted_term_meta' ), 10, 4 );
 		add_action( 'deleted_user_meta', array( $this, 'on_deleted_user_meta' ), 10, 4 );

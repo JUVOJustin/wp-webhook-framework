@@ -9,17 +9,13 @@ declare(strict_types=1);
 
 namespace Citation\WP_Webhook_Framework;
 
-use Citation\WP_Webhook_Framework\Webhooks\Post_Webhook;
-use Citation\WP_Webhook_Framework\Webhooks\Term_Webhook;
-use Citation\WP_Webhook_Framework\Webhooks\User_Webhook;
-use Citation\WP_Webhook_Framework\Webhooks\Meta_Webhook;
 use Citation\WP_Webhook_Framework\Notifications\Blocked;
 use Citation\WP_Webhook_Framework\Notifications\Notification_Registry;
 
 /**
- * Class Service_Provider
- *
- * Registers WordPress hooks and wires entity handlers to the dispatcher using the registry pattern.
+ * Bootstraps the framework by wiring up the Dispatcher, Registry, and
+ * Notification system. Does not register any webhooks -- consumers must
+ * register their own via the `wpwf_register_webhooks` action.
  */
 class Service_Provider {
 
@@ -94,24 +90,20 @@ class Service_Provider {
 	}
 
 	/**
-	 * Register webhooks using the registry pattern.
+	 * Fire the registration action so consumers can register webhooks.
+	 *
+	 * No webhooks are registered by default. Consumers choose which
+	 * webhooks to register via the `wpwf_register_webhooks` action.
+	 * Each call to `Webhook_Registry::register()` immediately calls
+	 * `init()` on the webhook, so hooks are active right away.
 	 */
 	private function register_webhooks(): void {
-		// Register core webhooks with default configuration
-		$this->registry->register( new Post_Webhook() );
-		$this->registry->register( new Term_Webhook() );
-		$this->registry->register( new User_Webhook() );
-		$this->registry->register( new Meta_Webhook() );
-
 		/**
-		 * Allow third parties to register custom webhooks.
+		 * Register webhooks with the framework.
 		 *
 		 * @param Webhook_Registry $registry The webhook registry instance.
 		 */
 		do_action( 'wpwf_register_webhooks', $this->registry );
-
-		// Initialize all registered webhooks
-		$this->registry->init_all();
 	}
 
 	/**

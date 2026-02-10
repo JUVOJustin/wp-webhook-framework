@@ -12,7 +12,6 @@ Configure individual webhooks using chainable methods.
 | `max_consecutive_failures(int)` | Failures before blocking (0 disables) | 10 |
 | `max_retries(int)` | Retry attempts per failed event | 0 |
 | `timeout(int)` | HTTP timeout in seconds (1-300) | 10 |
-| `enabled(bool)` | Enable/disable webhook | true |
 | `headers(array)` | Custom HTTP headers | [] |
 | `notifications(array)` | Enable notification handlers | [] |
 
@@ -29,29 +28,25 @@ $webhook->webhook_url( 'https://api.example.com' )
 
 ## Registry Configuration
 
-Access and configure webhooks through the registry:
+Register webhooks via the `wpwf_register_webhooks` action. No webhooks are
+active by default -- only those you explicitly register:
 
 ```php
-$registry = Service_Provider::get_registry();
+use Citation\WP_Webhook_Framework\Webhooks\Post_Webhook;
+use Citation\WP_Webhook_Framework\Webhooks\Meta_Webhook;
 
-$post_webhook = $registry->get( 'post' );
-if ( null !== $post_webhook ) {
-    $post_webhook->webhook_url( 'https://api.example.com/posts' )
-                 ->max_consecutive_failures( 3 )
-                 ->timeout( 30 );
-}
-```
-
-## Notification Configuration
-
-Notifications are **opt-in** per webhook. Enable specific handlers:
-
-```php
 add_action( 'wpwf_register_webhooks', function ( Webhook_Registry $registry ): void {
-    $post_webhook = $registry->get( 'post' );
-    if ( null !== $post_webhook ) {
-        $post_webhook->notifications( array( 'blocked' ) );
-    }
+    $post = new Post_Webhook();
+    $post->webhook_url( 'https://api.example.com/posts' )
+         ->max_consecutive_failures( 3 )
+         ->timeout( 30 )
+         ->notifications( array( 'blocked' ) );
+    $registry->register( $post );
+
+    $meta = new Meta_Webhook();
+    $meta->webhook_url( 'https://api.example.com/posts' )
+         ->emission_mode( Meta_Webhook::EMIT_ENTITY );
+    $registry->register( $meta );
 } );
 ```
 

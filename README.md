@@ -36,19 +36,22 @@ See [Configuration](./docs/configuration.md) for detailed configuration options.
 
 ## Usage Examples
 
-### Configure Built-in Webhooks
+### Register Webhooks
+
+No webhooks are active by default. Register what you need via the action:
 
 ```php
-$registry = \Citation\WP_Webhook_Framework\Service_Provider::get_registry();
+use Citation\WP_Webhook_Framework\Webhooks\Post_Webhook;
 
-$post_webhook = $registry->get('post');
-if ($post_webhook) {
-    $post_webhook->webhook_url('https://api.example.com/posts')
-                 ->max_retries(3)
-                 ->max_consecutive_failures(5)
-                 ->timeout(60)
-                 ->notifications(['blocked']); // Enable email notifications
-}
+add_action('wpwf_register_webhooks', function ($registry) {
+    $post = new Post_Webhook();
+    $post->webhook_url('https://api.example.com/posts')
+         ->max_retries(3)
+         ->max_consecutive_failures(5)
+         ->timeout(60)
+         ->notifications(['blocked']);
+    $registry->register($post);
+});
 ```
 
 ### Multiple Endpoints for the Same Entity
@@ -88,10 +91,6 @@ class Custom_Webhook extends \Citation\WP_Webhook_Framework\Webhook {
     }
     
     public function init(): void {
-        if (!$this->is_enabled()) {
-            return;
-        }
-        
         add_action('my_custom_action', [$this, 'handle_action'], 10, 1);
     }
     

@@ -24,7 +24,6 @@ public function init(): void {
 Configuration methods:
 - `max_consecutive_failures()` - Retry policy
 - `timeout()` - Request timeout
-- `enabled()` - Enable/disable webhook
 - `webhook_url()` - Custom endpoint URL
 - `headers()` - Static headers (auth tokens, API keys)
 

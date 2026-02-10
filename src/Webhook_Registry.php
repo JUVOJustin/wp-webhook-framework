@@ -80,9 +80,13 @@ class Webhook_Registry {
 
 		$this->webhooks[ $name ] = $webhook;
 
-		// Initialize the webhook if it's enabled
-		if ( $webhook->is_enabled() ) {
-			$webhook->init();
+		// Register WordPress hooks and initialize notifications
+		$webhook->init();
+
+		$notifications = $webhook->get_enabled_notifications();
+		if ( ! empty( $notifications ) ) {
+			$notification_registry = Service_Provider::get_notification_registry();
+			$notification_registry->init_selected( $notifications );
 		}
 
 		return $this;
@@ -107,21 +111,6 @@ class Webhook_Registry {
 	 */
 	public function get_all(): array {
 		return $this->webhooks;
-	}
-
-	/**
-	 * Get all enabled webhooks.
-	 *
-	 * @return array<string,Webhook>
-	 * @phpstan-return array<non-empty-string,Webhook>
-	 */
-	public function get_enabled(): array {
-		return array_filter(
-			$this->webhooks,
-			static function ( Webhook $webhook ): bool {
-				return $webhook->is_enabled();
-			}
-		);
 	}
 
 	/**
@@ -157,24 +146,6 @@ class Webhook_Registry {
 	 */
 	public function get_dispatcher(): Dispatcher {
 		return $this->dispatcher;
-	}
-
-	/**
-	 * Initialize all registered webhooks.
-	 *
-	 * Called by the ServiceProvider to initialize all webhooks and their associated notifications.
-	 */
-	public function init_all(): void {
-		foreach ( $this->get_enabled() as $webhook ) {
-			$webhook->init();
-
-			// Initialize webhook-specific notifications
-			$enabled_notifications = $webhook->get_enabled_notifications();
-			if ( ! empty( $enabled_notifications ) ) {
-				$notification_registry = Service_Provider::get_notification_registry();
-				$notification_registry->init_selected( $enabled_notifications );
-			}
-		}
 	}
 
 	/**
