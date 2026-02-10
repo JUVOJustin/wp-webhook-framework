@@ -158,6 +158,25 @@ class Gravity_Forms_Webhook extends \Citation\WP_Webhook_Framework\Webhook {
 }
 ```
 
+## Multiple Endpoints for the Same Entity
+
+Register additional instances of a built-in webhook class with a unique name.
+Each instance has its own URL, retry policy, timeout, and failure tracking:
+
+```php
+add_action( 'wpwf_register_webhooks', function ( Webhook_Registry $registry ): void {
+    $analytics = new \Citation\WP_Webhook_Framework\Webhooks\Post_Webhook( 'post_analytics' );
+    $analytics->webhook_url( 'https://analytics.example.com/posts' )
+              ->timeout( 10 );
+    $registry->register( $analytics );
+} );
+```
+
+This is recommended over modifying the built-in webhooks whenever different
+endpoints require different configuration (timeouts, retries, headers, etc.).
+
+See [Configuration](./configuration.md#multiple-endpoints-for-the-same-entity) for a detailed example.
+
 ## Conditional Registration
 
 Check plugin availability before registering:
