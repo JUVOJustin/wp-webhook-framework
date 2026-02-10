@@ -1,6 +1,6 @@
 <?php
 /**
- * Emission mode enum for Meta_Webhook.
+ * Meta emission mode enum for Meta_Webhook.
  *
  * Native enum controlling which webhooks are dispatched on meta changes.
  *
@@ -18,7 +18,7 @@ namespace Citation\WP_Webhook_Framework\Webhooks;
  * - BOTH:   Emit the meta-entity webhook AND trigger the parent entity update.
  * - ENTITY: Only trigger the parent entity update webhook.
  */
-enum Emission_Mode: string {
+enum Meta_Emission_Mode: string {
 
 	/**
 	 * Only emit the meta-entity webhook.

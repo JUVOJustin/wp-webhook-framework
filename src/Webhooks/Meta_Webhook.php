@@ -32,11 +32,11 @@ use Citation\WP_Webhook_Framework\Support\AcfUtil;
  *           on the same object collapse into a single delivery.
  *
  * Usage examples:
- *   ->emission_mode( Emission_Mode::META )
- *   ->emission_mode( Emission_Mode::BOTH )
- *   ->emission_mode( Emission_Mode::ENTITY )
- *   ->emission_mode( Emission_Mode::from( 'meta' ) )  // throws on invalid
- *   ->emission_mode( Emission_Mode::tryFrom( 'meta' ) ?? Emission_Mode::BOTH )
+ *   ->emission_mode( Meta_Emission_Mode::META )
+ *   ->emission_mode( Meta_Emission_Mode::BOTH )
+ *   ->emission_mode( Meta_Emission_Mode::ENTITY )
+ *   ->emission_mode( Meta_Emission_Mode::from( 'meta' ) )  // throws on invalid
+ *   ->emission_mode( Meta_Emission_Mode::tryFrom( 'meta' ) ?? Meta_Emission_Mode::BOTH )
  */
 class Meta_Webhook extends Webhook {
 
@@ -50,9 +50,9 @@ class Meta_Webhook extends Webhook {
 	/**
 	 * Controls which webhooks are dispatched on meta changes.
 	 *
-	 * @var Emission_Mode
+	 * @var Meta_Emission_Mode
 	 */
-	private Emission_Mode $emission_mode;
+	private Meta_Emission_Mode $emission_mode;
 
 	/**
 	 * Tracks meta updates already processed during this request.
@@ -77,16 +77,16 @@ class Meta_Webhook extends Webhook {
 	public function __construct( string $name = 'meta' ) {
 		parent::__construct( $name );
 		$this->meta_handler  = new Meta();
-		$this->emission_mode = Emission_Mode::BOTH;
+		$this->emission_mode = Meta_Emission_Mode::BOTH;
 	}
 
 	/**
 	 * Set the emission mode for meta changes.
 	 *
-	 * @param Emission_Mode $mode The emission mode.
+	 * @param Meta_Emission_Mode $mode The emission mode.
 	 * @return static
 	 */
-	public function emission_mode( Emission_Mode $mode ): static {
+	public function emission_mode( Meta_Emission_Mode $mode ): static {
 		$this->emission_mode = $mode;
 		return $this;
 	}
@@ -94,9 +94,9 @@ class Meta_Webhook extends Webhook {
 	/**
 	 * Get the current emission mode.
 	 *
-	 * @return Emission_Mode
+	 * @return Meta_Emission_Mode
 	 */
-	public function get_emission_mode(): Emission_Mode {
+	public function get_emission_mode(): Meta_Emission_Mode {
 		return $this->emission_mode;
 	}
 
