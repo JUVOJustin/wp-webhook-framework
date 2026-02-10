@@ -168,9 +168,7 @@ class Meta_Webhook extends Webhook {
 
 				// Fetch the current persisted value for accurate change detection.
 				// $object_id is already in ACF format (123, "term_123", "user_123").
-				$old_value = function_exists( 'get_field' )
-					? get_field( $meta_key, $object_id, false )
-					: null;
+				$old_value = get_field( $meta_key, $object_id, false );
 
 				$this->on_acf_update( $entity, (int) $id, is_array( $field ) ? $field : array(), $value, $old_value );
 
