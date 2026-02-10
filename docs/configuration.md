@@ -17,15 +17,16 @@ Configure individual webhooks using chainable methods.
 
 ### Meta Emission Modes
 
-The `Meta_Webhook` supports three emission modes via `emission_mode()`:
+The `Meta_Webhook` supports three emission modes via `emission_mode()` and the `Emission_Mode` enum:
 
-| Constant | Behavior | Default |
+| Enum case | Behavior | Default |
 |----------|----------|---------|
-| `Meta_Webhook::EMIT_META` | Only emit the meta-entity webhook | No |
-| `Meta_Webhook::EMIT_BOTH` | Emit meta-entity webhook AND parent entity update | **Yes** |
-| `Meta_Webhook::EMIT_ENTITY` | Only emit the parent entity update | No |
+| `Emission_Mode::META` | Only emit the meta-entity webhook | No |
+| `Emission_Mode::BOTH` | Emit meta-entity webhook AND parent entity update | **Yes** |
+| `Emission_Mode::ENTITY` | Only emit the parent entity update | No |
 
 ```php
+use Citation\WP_Webhook_Framework\Webhooks\Emission_Mode;
 use Citation\WP_Webhook_Framework\Webhooks\Meta_Webhook;
 
 $registry = Service_Provider::get_registry();
@@ -34,11 +35,11 @@ $meta_webhook = $registry->get( 'meta' );
 if ( $meta_webhook instanceof Meta_Webhook ) {
     // Meta changes only trigger parent entity updates (e.g. post),
     // no separate meta-entity webhooks are emitted.
-    $meta_webhook->emission_mode( Meta_Webhook::EMIT_ENTITY );
+    $meta_webhook->emission_mode( Emission_Mode::ENTITY );
 }
 ```
 
-In `EMIT_ENTITY` mode the Dispatcher deduplicates on `(url, action, entity, id)`,
+In `Emission_Mode::ENTITY` mode the Dispatcher deduplicates on `(url, action, entity, id)`,
 so rapid meta changes on the same post collapse into a single delivery.
 
 ### Chainable Configuration
@@ -59,6 +60,7 @@ active by default -- only those you explicitly register:
 
 ```php
 use Citation\WP_Webhook_Framework\Webhooks\Post_Webhook;
+use Citation\WP_Webhook_Framework\Webhooks\Emission_Mode;
 use Citation\WP_Webhook_Framework\Webhooks\Meta_Webhook;
 
 add_action( 'wpwf_register_webhooks', function ( Webhook_Registry $registry ): void {
@@ -71,7 +73,7 @@ add_action( 'wpwf_register_webhooks', function ( Webhook_Registry $registry ): v
 
     $meta = new Meta_Webhook();
     $meta->webhook_url( 'https://api.example.com/posts' )
-         ->emission_mode( Meta_Webhook::EMIT_ENTITY );
+         ->emission_mode( Emission_Mode::ENTITY );
     $registry->register( $meta );
 } );
 ```

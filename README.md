@@ -23,6 +23,8 @@ Entity-level webhooks for WordPress using Action Scheduler. Sends non-blocking P
 composer require citation-media/wp-webhook-framework
 ```
 
+Requires PHP 8.1+.
+
 Ensure Action Scheduler is active (dependency is declared).
 
 ### Basic Setup
