@@ -76,6 +76,21 @@ public function on_save_post(int $post_id, \WP_Post $post, bool $update): void {
 // Each emission is self-contained - no shared state
 ```
 
+## Exception: Request-Scoped Static State for Meta Deduplication
+
+`Meta_Webhook` uses a static property `$processed_meta_updates` to track which `entity:id:meta_key` combinations have already been processed during the current request. This is intentional shared state - not per-instance data.
+
+**Why:** Plugins like ACF or Meta Box fire their own hook (e.g. `acf/update_value`) *and* the underlying WordPress `update_post_metadata` filter. Both paths lead to `on_meta_update()`. Without deduplication, the same field change would emit two webhooks.
+
+**How it works:**
+
+1. The first hook that reaches `on_meta_update()` marks the key as processed and emits the webhook
+2. The second hook checks the processed set and skips emission
+3. Deletions clear the processed key so a delete webhook always fires, even if an update for the same key was already processed
+4. The set is cleared on `shutdown`
+
+This approach keeps all early-exit checks (equality, exclusions) running immediately on the first path. The second path is a cheap `isset()` + bail. It works generically with any plugin that fires both its own hook and the underlying WordPress meta filter.
+
 ## Summary
 
 | Data Type | Storage Location | Set During | Example |

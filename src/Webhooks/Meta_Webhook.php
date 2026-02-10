@@ -84,6 +84,20 @@ class Meta_Webhook extends Webhook {
 	private string $emission_mode = self::EMIT_BOTH;
 
 	/**
+	 * Tracks meta updates already processed during this request.
+	 *
+	 * Plugins like ACF or Meta Box fire their own hook (e.g. acf/update_value)
+	 * before the underlying update_post_metadata filter runs. Both paths lead
+	 * to on_meta_update(). The first call records the key here; the second
+	 * call sees it and bails, preventing duplicate webhooks.
+	 *
+	 * Keyed by "entity:object_id:meta_key". Cleaned up on shutdown.
+	 *
+	 * @var array<string, true>
+	 */
+	private static array $processed_meta_updates = array();
+
+	/**
 	 * Constructor.
 	 *
 	 * @param string $name The webhook name.
@@ -147,7 +161,19 @@ class Meta_Webhook extends Webhook {
 					return $value;
 				}
 
+				$meta_key = is_array( $field ) ? ( $field['name'] ?? '' ) : '';
+
+				if ( '' !== $meta_key && self::is_already_processed( $entity, (int) $id, $meta_key ) ) {
+					// Deletions override prior updates so the webhook is re-emitted
+					if ( $this->meta_handler->is_deletion( $value, $original ) ) {
+						self::unmark_as_processed( $entity, (int) $id, $meta_key );
+					} else {
+						return $value;
+					}
+				}
+
 				$this->on_acf_update( $entity, (int) $id, is_array( $field ) ? $field : array(), $value, $original );
+
 				return $value;
 			},
 			10,
@@ -158,6 +184,51 @@ class Meta_Webhook extends Webhook {
 		add_filter( 'update_post_metadata', array( $this, 'on_updated_post_meta' ), 999, 5 );
 		add_filter( 'update_term_metadata', array( $this, 'on_updated_term_meta' ), 999, 5 );
 		add_filter( 'update_user_metadata', array( $this, 'on_updated_user_meta' ), 999, 5 );
+
+		// Clean up processed tracking on shutdown to prevent stale entries across long-running processes
+		add_action(
+			'shutdown',
+			static function (): void {
+				self::$processed_meta_updates = array();
+			}
+		);
+	}
+
+	/**
+	 * Check whether this exact meta update has already been processed.
+	 *
+	 * @param string $entity    The entity type (post, term, user).
+	 * @param int    $object_id The object ID.
+	 * @param string $meta_key  The meta key.
+	 * @return bool True if already processed during this request.
+	 */
+	private static function is_already_processed( string $entity, int $object_id, string $meta_key ): bool {
+		return isset( self::$processed_meta_updates[ $entity . ':' . $object_id . ':' . $meta_key ] );
+	}
+
+	/**
+	 * Record a meta update as processed for the current request.
+	 *
+	 * @param string $entity    The entity type (post, term, user).
+	 * @param int    $object_id The object ID.
+	 * @param string $meta_key  The meta key.
+	 */
+	private static function mark_as_processed( string $entity, int $object_id, string $meta_key ): void {
+		self::$processed_meta_updates[ $entity . ':' . $object_id . ':' . $meta_key ] = true;
+	}
+
+	/**
+	 * Remove a meta update from the processed set.
+	 *
+	 * Used by deletion handlers so that a deletion always emits a webhook,
+	 * even if an update for the same key was already processed.
+	 *
+	 * @param string $entity    The entity type (post, term, user).
+	 * @param int    $object_id The object ID.
+	 * @param string $meta_key  The meta key.
+	 */
+	private static function unmark_as_processed( string $entity, int $object_id, string $meta_key ): void {
+		unset( self::$processed_meta_updates[ $entity . ':' . $object_id . ':' . $meta_key ] );
 	}
 
 	/**
@@ -171,6 +242,10 @@ class Meta_Webhook extends Webhook {
 	 * @return bool|null
 	 */
 	public function on_updated_post_meta( ?bool $check, int $object_id, string $meta_key, mixed $meta_value, mixed $prev_value ): ?bool {
+		if ( self::is_already_processed( 'post', $object_id, $meta_key ) ) {
+			return $check;
+		}
+
 		if ( wp_is_post_revision( $object_id ) || wp_is_post_autosave( $object_id ) ) {
 			return $check;
 		}
@@ -180,6 +255,7 @@ class Meta_Webhook extends Webhook {
 		}
 
 		$this->on_meta_update( 'post', $object_id, $meta_key, $meta_value, $prev_value );
+
 		return $check;
 	}
 
@@ -192,10 +268,12 @@ class Meta_Webhook extends Webhook {
 	 * @param mixed  $meta_value The meta value.
 	 */
 	public function on_deleted_post_meta( $meta_ids, int $object_id, string $meta_key, $meta_value ): void {
-
 		if ( wp_is_post_revision( $object_id ) || wp_is_post_autosave( $object_id ) ) {
 			return;
 		}
+
+		// Deletions always re-emit, even if the same key was already processed as an update
+		self::unmark_as_processed( 'post', $object_id, $meta_key );
 
 		$this->on_meta_update( 'post', $object_id, $meta_key, $meta_value );
 	}
@@ -211,11 +289,16 @@ class Meta_Webhook extends Webhook {
 	 * @return bool|null
 	 */
 	public function on_updated_term_meta( ?bool $check, int $object_id, string $meta_key, mixed $meta_value, mixed $prev_value ): ?bool {
+		if ( self::is_already_processed( 'term', $object_id, $meta_key ) ) {
+			return $check;
+		}
+
 		if ( empty( $prev_value ) ) {
 			$prev_value = get_term_meta( $object_id, $meta_key, true );
 		}
 
 		$this->on_meta_update( 'term', $object_id, $meta_key, $meta_value, $prev_value );
+
 		return $check;
 	}
 
@@ -228,6 +311,9 @@ class Meta_Webhook extends Webhook {
 	 * @param mixed  $meta_value The meta value.
 	 */
 	public function on_deleted_term_meta( $meta_ids, int $object_id, string $meta_key, $meta_value ): void {
+		// Deletions always re-emit, even if the same key was already processed as an update
+		self::unmark_as_processed( 'term', $object_id, $meta_key );
+
 		$this->on_meta_update( 'term', $object_id, $meta_key, $meta_value );
 	}
 
@@ -242,11 +328,16 @@ class Meta_Webhook extends Webhook {
 	 * @return bool|null
 	 */
 	public function on_updated_user_meta( ?bool $check, int $object_id, string $meta_key, mixed $meta_value, mixed $prev_value ): ?bool {
+		if ( self::is_already_processed( 'user', $object_id, $meta_key ) ) {
+			return $check;
+		}
+
 		if ( empty( $prev_value ) ) {
 			$prev_value = get_user_meta( $object_id, $meta_key, true );
 		}
 
 		$this->on_meta_update( 'user', $object_id, $meta_key, $meta_value, $prev_value );
+
 		return $check;
 	}
 
@@ -259,6 +350,9 @@ class Meta_Webhook extends Webhook {
 	 * @param mixed  $meta_value The meta value.
 	 */
 	public function on_deleted_user_meta( $meta_ids, int $object_id, string $meta_key, $meta_value ): void {
+		// Deletions always re-emit, even if the same key was already processed as an update
+		self::unmark_as_processed( 'user', $object_id, $meta_key );
+
 		$this->on_meta_update( 'user', $object_id, $meta_key, $meta_value );
 	}
 
@@ -304,6 +398,9 @@ class Meta_Webhook extends Webhook {
 		if ( $this->meta_handler->is_meta_key_excluded( $meta_key, $meta_type, $object_id ) ) {
 			return;
 		}
+
+		// Record this update so a later duplicate hook for the same key is skipped
+		self::mark_as_processed( $meta_type, $object_id, $meta_key );
 
 		// Automatically detect if this is effectively a deletion
 		$is_deletion = $this->meta_handler->is_deletion( $new_value, $old_value );
