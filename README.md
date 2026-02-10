@@ -7,7 +7,7 @@ Entity-level webhooks for WordPress using Action Scheduler. Sends non-blocking P
 ## Features
 
 - **Action Scheduler dispatch** - 5s delay, non-blocking async delivery
-- **Automatic deduplication** - Based on action+entity+id
+- **Automatic deduplication** - Dispatcher-level on action+entity+id and meta-level per-request dedup for plugin hooks (ACF, Meta Box, etc.)
 - **Entity-aware payloads** - Includes post_type, taxonomy, or roles
 - **ACF integration** - Adds field key/name context to meta changes
 - **Registry pattern** - Extensible webhook system with custom configurations

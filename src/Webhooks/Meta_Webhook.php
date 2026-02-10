@@ -84,6 +84,20 @@ class Meta_Webhook extends Webhook {
 	private string $emission_mode = self::EMIT_BOTH;
 
 	/**
+	 * Tracks meta updates already processed during this request.
+	 *
+	 * Plugins like ACF or Meta Box fire their own hook (e.g. acf/update_value)
+	 * before the underlying update_post_metadata filter runs. Both paths lead
+	 * to on_meta_update(). The first call records the key here; the second
+	 * call sees it and bails, preventing duplicate webhooks.
+	 *
+	 * Keyed by "entity:object_id:meta_key". Cleaned up on shutdown.
+	 *
+	 * @var array<string, true>
+	 */
+	private static array $processed_meta_updates = array();
+
+	/**
 	 * Constructor.
 	 *
 	 * @param string $name The webhook name.
@@ -140,24 +154,88 @@ class Meta_Webhook extends Webhook {
 
 		add_filter(
 			'acf/update_value',
-			function ( $value, $object_id, $field, $original ): mixed {
+			function ( $value, $object_id, $field ): mixed {
 				[$entity, $id] = AcfUtil::parse_object_id( $object_id );
 
 				if ( null === $entity || null === $id ) {
 					return $value;
 				}
 
-				$this->on_acf_update( $entity, (int) $id, is_array( $field ) ? $field : array(), $value, $original );
+				$meta_key = is_array( $field ) ? ( $field['name'] ?? '' ) : '';
+				if ( '' === $meta_key ) {
+					return $value;
+				}
+
+				// Fetch the current persisted value for accurate change detection.
+				// $object_id is already in ACF format (123, "term_123", "user_123").
+				if ( 'repeater' !== $field['type'] ) {
+					$old_value = get_field( $meta_key, $object_id, false );
+				} else {
+					$old_value = match ( $entity ) {
+						'post' => get_post_meta( $id, $meta_key, true ),
+						'term' => get_term_meta( $id, $meta_key, true ),
+						'user' => get_user_meta( $id, $meta_key, true ),
+						default => null,
+					};
+				}
+
+				$this->on_acf_update( $entity, (int) $id, is_array( $field ) ? $field : array(), $value, $old_value );
+
 				return $value;
 			},
-			10,
-			4
+			999,
+			3
 		);
 
 		// Add filters for all meta types with high priority to run late
 		add_filter( 'update_post_metadata', array( $this, 'on_updated_post_meta' ), 999, 5 );
 		add_filter( 'update_term_metadata', array( $this, 'on_updated_term_meta' ), 999, 5 );
 		add_filter( 'update_user_metadata', array( $this, 'on_updated_user_meta' ), 999, 5 );
+
+		// Clean up processed tracking on shutdown to prevent stale entries across long-running processes
+		add_action(
+			'shutdown',
+			static function (): void {
+				self::$processed_meta_updates = array();
+			}
+		);
+	}
+
+	/**
+	 * Check whether this exact meta update has already been processed.
+	 *
+	 * @param string $entity    The entity type (post, term, user).
+	 * @param int    $object_id The object ID.
+	 * @param string $meta_key  The meta key.
+	 * @return bool True if already processed during this request.
+	 */
+	private static function is_already_processed( string $entity, int $object_id, string $meta_key ): bool {
+		return isset( self::$processed_meta_updates[ $entity . ':' . $object_id . ':' . $meta_key ] );
+	}
+
+	/**
+	 * Record a meta update as processed for the current request.
+	 *
+	 * @param string $entity    The entity type (post, term, user).
+	 * @param int    $object_id The object ID.
+	 * @param string $meta_key  The meta key.
+	 */
+	private static function mark_as_processed( string $entity, int $object_id, string $meta_key ): void {
+		self::$processed_meta_updates[ $entity . ':' . $object_id . ':' . $meta_key ] = true;
+	}
+
+	/**
+	 * Remove a meta update from the processed set.
+	 *
+	 * Used by deletion handlers so that a deletion always emits a webhook,
+	 * even if an update for the same key was already processed.
+	 *
+	 * @param string $entity    The entity type (post, term, user).
+	 * @param int    $object_id The object ID.
+	 * @param string $meta_key  The meta key.
+	 */
+	private static function unmark_as_processed( string $entity, int $object_id, string $meta_key ): void {
+		unset( self::$processed_meta_updates[ $entity . ':' . $object_id . ':' . $meta_key ] );
 	}
 
 	/**
@@ -180,6 +258,7 @@ class Meta_Webhook extends Webhook {
 		}
 
 		$this->on_meta_update( 'post', $object_id, $meta_key, $meta_value, $prev_value );
+
 		return $check;
 	}
 
@@ -192,7 +271,6 @@ class Meta_Webhook extends Webhook {
 	 * @param mixed  $meta_value The meta value.
 	 */
 	public function on_deleted_post_meta( $meta_ids, int $object_id, string $meta_key, $meta_value ): void {
-
 		if ( wp_is_post_revision( $object_id ) || wp_is_post_autosave( $object_id ) ) {
 			return;
 		}
@@ -216,6 +294,7 @@ class Meta_Webhook extends Webhook {
 		}
 
 		$this->on_meta_update( 'term', $object_id, $meta_key, $meta_value, $prev_value );
+
 		return $check;
 	}
 
@@ -247,6 +326,7 @@ class Meta_Webhook extends Webhook {
 		}
 
 		$this->on_meta_update( 'user', $object_id, $meta_key, $meta_value, $prev_value );
+
 		return $check;
 	}
 
@@ -267,19 +347,19 @@ class Meta_Webhook extends Webhook {
 	 *
 	 * Routes ACF field updates to the central meta update handler.
 	 *
-	 * @param string              $entity   The entity type.
-	 * @param int                 $id       The entity ID.
-	 * @param array<string,mixed> $field    The field data.
-	 * @param mixed               $value    The new value.
-	 * @param mixed               $original The original value.
+	 * @param string              $entity    The entity type.
+	 * @param int                 $id        The entity ID.
+	 * @param array<string,mixed> $field     The field data.
+	 * @param mixed               $value     The new value.
+	 * @param mixed               $old_value The current persisted value fetched via get_field().
 	 */
-	private function on_acf_update( string $entity, int $id, array $field, $value = null, $original = null ): void {
+	private function on_acf_update( string $entity, int $id, array $field, $value = null, $old_value = null ): void {
 		$meta_key = $field['name'] ?? '';
 		if ( empty( $meta_key ) ) {
 			return;
 		}
 
-		$this->on_meta_update( $entity, $id, $meta_key, $value, $original );
+		$this->on_meta_update( $entity, $id, $meta_key, $value, $old_value );
 	}
 
 	/**
@@ -295,8 +375,11 @@ class Meta_Webhook extends Webhook {
 	 */
 	private function on_meta_update( string $meta_type, int $object_id, string $meta_key, mixed $new_value, mixed $old_value = null ): void {
 		// No change, do nothing (ALWAYS use loose equality for value comparison)
-		// phpcs:ignore WordPress.PHP.StrictComparisons.LooseComparison,Universal.Operators.StrictComparisons.LooseEqual
-		if ( $new_value == $old_value ) {
+		if (
+			( empty( $new_value ) && empty( $old_value ) )
+			|| ( $new_value == $old_value ) // phpcs:ignore Universal.Operators.StrictComparisons.LooseEqual
+			|| ( is_string( $new_value ) && is_string( $old_value ) && stripslashes( $new_value ) === stripslashes( $old_value ) ) // JSON Strings are escaped from frontend saves
+		) {
 			return;
 		}
 
@@ -307,7 +390,22 @@ class Meta_Webhook extends Webhook {
 
 		// Automatically detect if this is effectively a deletion
 		$is_deletion = $this->meta_handler->is_deletion( $new_value, $old_value );
-		$action      = $is_deletion ? 'delete' : 'update';
+
+		// Deletions clear prior tracking so they always re-emit
+		if ( $is_deletion ) {
+			self::unmark_as_processed( $meta_type, $object_id, $meta_key );
+		}
+
+		// Deduplicate: skip if this exact key was already processed during this request.
+		// Plugins like ACF fire their own hook AND the underlying WP meta filter for the
+		// same change. The first path through here marks the key; the second bails.
+		if ( self::is_already_processed( $meta_type, $object_id, $meta_key ) ) {
+			return;
+		}
+
+		self::mark_as_processed( $meta_type, $object_id, $meta_key );
+
+		$action = $is_deletion ? 'delete' : 'update';
 
 		// Emit meta-level webhook when mode includes meta emission
 		if ( self::EMIT_META === $this->emission_mode || self::EMIT_BOTH === $this->emission_mode ) {
