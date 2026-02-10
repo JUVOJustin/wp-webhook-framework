@@ -37,17 +37,8 @@ class Dispatcher {
 			throw new WP_Exception( 'action_scheduler_not_active' );
 		}
 
-		// Apply filter if no webhook-specific URL was set
+		// Allow filters to modify or set the URL at dispatch time
 		$url = apply_filters( 'wpwf_url', $url, $entity, $id );
-
-		// Constants always take precedence over filters for reliability
-		if (
-			defined( 'WP_WEBHOOK_FRAMEWORK_URL' )
-			&& WP_WEBHOOK_FRAMEWORK_URL !== ''
-			&& is_string( WP_WEBHOOK_FRAMEWORK_URL )
-		) {
-			$url = WP_WEBHOOK_FRAMEWORK_URL;
-		}
 
 		if ( empty( $url ) ) {
 			throw new WP_Exception( 'webhook_url_not_set' );

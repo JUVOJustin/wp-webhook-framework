@@ -32,13 +32,6 @@ Ensure Action Scheduler is active (dependency is declared).
 \Citation\WP_Webhook_Framework\Service_Provider::register();
 ```
 
-### Configuration
-
-```php
-// wp-config.php
-define('WP_WEBHOOK_FRAMEWORK_URL', 'https://api.example.com/webhook');
-```
-
 See [Configuration](./docs/configuration.md) for detailed configuration options.
 
 ## Usage Examples
@@ -56,6 +49,27 @@ if ($post_webhook) {
                  ->timeout(60)
                  ->notifications(['blocked']); // Enable email notifications
 }
+```
+
+### Multiple Endpoints for the Same Entity
+
+Multiple plugins can each register their own webhook instance for the same
+entity type. Each instance gets independent URL, retry policy, timeout, and
+failure tracking:
+
+```php
+add_action('wpwf_register_webhooks', function ($registry) {
+    $analytics = new \Citation\WP_Webhook_Framework\Webhooks\Post_Webhook('post_analytics');
+    $analytics->webhook_url('https://analytics.example.com/posts')
+              ->timeout(10);
+    $registry->register($analytics);
+
+    $crm = new \Citation\WP_Webhook_Framework\Webhooks\Post_Webhook('post_crm');
+    $crm->webhook_url('https://crm.example.com/webhook')
+        ->max_retries(5)
+        ->timeout(60);
+    $registry->register($crm);
+});
 ```
 
 ### Create Custom Webhook
@@ -126,7 +140,7 @@ See [Hooks and Filters](./docs/hooks-and-filters.md) for all available hooks and
 
 **Stateless (configuration):**
 ```php
-// Set once during __construct()
+// Set once during __construct() or via registry
 $this->webhook_url('https://api.example.com')
      ->max_consecutive_failures(5);
 ```

@@ -119,8 +119,6 @@ Filter the webhook URL before scheduling.
 
 **Returns:** string
 
-**Note:** `WP_WEBHOOK_FRAMEWORK_URL` constant always takes precedence.
-
 ```php
 // Route by entity type
 add_filter( 'wpwf_url', function ( string $url, string $entity, int|string $id ): string {
@@ -302,6 +300,5 @@ Filters are applied in this order:
 
 1. `wpwf_payload` - Modify or prevent payload
 2. `wpwf_url` - Customize webhook URL
-3. `WP_WEBHOOK_FRAMEWORK_URL` constant - Overrides filtered URL
-4. `wpwf_headers` - Customize HTTP headers
-5. `wpwf_excluded_meta` - Filter meta keys (meta webhooks only)
+3. `wpwf_headers` - Customize HTTP headers
+4. `wpwf_excluded_meta` - Filter meta keys (meta webhooks only)

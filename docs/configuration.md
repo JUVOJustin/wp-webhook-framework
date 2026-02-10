@@ -1,34 +1,6 @@
 # Configuration
 
-Configure webhook behavior using constants, methods, and filters.
-
-## Configuration Constants
-
-Define in `wp-config.php` for global webhook behavior.
-
-### `WP_WEBHOOK_FRAMEWORK_URL`
-
-Sets the webhook endpoint URL for all webhooks. Always takes precedence over filters and webhook-specific URLs.
-
-```php
-define( 'WP_WEBHOOK_FRAMEWORK_URL', 'https://api.example.com/webhook' );
-```
-
-**Precedence order:**
-1. `WP_WEBHOOK_FRAMEWORK_URL` constant (highest)
-2. Webhook-specific URL via `webhook_url()` method
-3. `wpwf_url` filter
-4. Exception thrown if none set
-
-### Environment-Based Configuration
-
-```php
-if ( 'production' === WP_ENV ) {
-    define( 'WP_WEBHOOK_FRAMEWORK_URL', 'https://api.example.com/webhook' );
-} else {
-    define( 'WP_WEBHOOK_FRAMEWORK_URL', 'https://staging-api.example.com/webhook' );
-}
-```
+Configure webhook behavior using methods, filters, and the registry.
 
 ## Webhook Configuration Methods
 
@@ -124,12 +96,37 @@ add_action( 'wpwf_register_webhooks', function ( Webhook_Registry $registry ): v
 } );
 ```
 
+## Multiple Endpoints for the Same Entity
+
+Register additional webhook instances instead of modifying the built-in ones.
+Each instance has its own URL, retry policy, timeout, and failure tracking:
+
+```php
+add_action( 'wpwf_register_webhooks', function ( Webhook_Registry $registry ): void {
+    // Analytics endpoint - fast timeout, no retries
+    $analytics = new \Citation\WP_Webhook_Framework\Webhooks\Post_Webhook( 'post_analytics' );
+    $analytics->webhook_url( 'https://analytics.example.com/posts' )
+              ->timeout( 10 );
+    $registry->register( $analytics );
+
+    // CRM endpoint - generous timeout, retries enabled
+    $crm = new \Citation\WP_Webhook_Framework\Webhooks\Post_Webhook( 'post_crm' );
+    $crm->webhook_url( 'https://crm.example.com/webhook' )
+        ->max_retries( 5 )
+        ->timeout( 60 )
+        ->notifications( array( 'blocked' ) );
+    $registry->register( $crm );
+} );
+```
+
+Each instance registers its own WordPress hooks and dispatches independently.
+This keeps configuration, failure tracking, and retry logic fully isolated.
+
 ## Configuration Priority
 
 ### URL Priority
-1. `WP_WEBHOOK_FRAMEWORK_URL` constant
-2. Webhook-specific `webhook_url()` method
-3. `wpwf_url` filter
+1. Webhook-specific `webhook_url()` method
+2. `wpwf_url` filter
 
 ### Headers Priority
 1. Webhook-specific `headers()` method
