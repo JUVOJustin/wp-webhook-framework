@@ -15,6 +15,32 @@ Configure individual webhooks using chainable methods.
 | `headers(array)` | Custom HTTP headers | [] |
 | `notifications(array)` | Enable notification handlers | [] |
 
+### Meta Emission Modes
+
+The `Meta_Webhook` supports three emission modes via `emission_mode()`:
+
+| Constant | Behavior | Default |
+|----------|----------|---------|
+| `Meta_Webhook::EMIT_META` | Only emit the meta-entity webhook | No |
+| `Meta_Webhook::EMIT_BOTH` | Emit meta-entity webhook AND parent entity update | **Yes** |
+| `Meta_Webhook::EMIT_ENTITY` | Only emit the parent entity update | No |
+
+```php
+use Citation\WP_Webhook_Framework\Webhooks\Meta_Webhook;
+
+$registry = Service_Provider::get_registry();
+
+$meta_webhook = $registry->get( 'meta' );
+if ( $meta_webhook instanceof Meta_Webhook ) {
+    // Meta changes only trigger parent entity updates (e.g. post),
+    // no separate meta-entity webhooks are emitted.
+    $meta_webhook->emission_mode( Meta_Webhook::EMIT_ENTITY );
+}
+```
+
+In `EMIT_ENTITY` mode the Dispatcher deduplicates on `(url, action, entity, id)`,
+so rapid meta changes on the same post collapse into a single delivery.
+
 ### Chainable Configuration
 
 ```php
