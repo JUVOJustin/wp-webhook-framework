@@ -44,10 +44,6 @@ class Post_Webhook extends Webhook {
 	 * Initialize the webhook by registering WordPress hooks.
 	 */
 	public function init(): void {
-		if ( ! $this->is_enabled() ) {
-			return;
-		}
-
 		add_action( 'save_post', array( $this, 'on_save_post' ), 10, 3 );
 		add_action( 'before_delete_post', array( $this, 'on_delete_post' ), 10, 1 );
 	}

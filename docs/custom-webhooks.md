@@ -20,10 +20,6 @@ class Custom_Webhook extends \Citation\WP_Webhook_Framework\Webhook {
     }
     
     public function init(): void {
-        if ( ! $this->is_enabled() ) {
-            return;
-        }
-        
         add_action( 'my_custom_action', array( $this, 'handle_action' ) );
     }
     
@@ -51,7 +47,6 @@ add_action( 'wpwf_register_webhooks', function ( Webhook_Registry $registry ): v
 | `max_retries(int)` | Retry attempts per failed event | 0 |
 | `max_consecutive_failures(int)` | Failures before blocking (0 disables) | 10 |
 | `timeout(int)` | HTTP timeout in seconds (1-300) | 10 |
-| `enabled(bool)` | Enable/disable webhook | true |
 | `webhook_url(string)` | Custom endpoint URL | None |
 | `headers(array)` | Additional HTTP headers | [] |
 | `notifications(array)` | Notification handlers to enable | [] |
@@ -74,10 +69,6 @@ class WooCommerce_Order_Webhook extends \Citation\WP_Webhook_Framework\Webhook {
     }
     
     public function init(): void {
-        if ( ! $this->is_enabled() ) {
-            return;
-        }
-        
         add_action( 'woocommerce_new_order', array( $this, 'on_new_order' ) );
         add_action( 'woocommerce_order_status_changed', array( $this, 'on_status_changed' ), 10, 4 );
     }
@@ -110,10 +101,6 @@ class CF7_Webhook extends \Citation\WP_Webhook_Framework\Webhook {
     }
     
     public function init(): void {
-        if ( ! $this->is_enabled() ) {
-            return;
-        }
-        
         add_action( 'wpcf7_mail_sent', array( $this, 'on_submit' ) );
     }
     
@@ -142,10 +129,6 @@ class Gravity_Forms_Webhook extends \Citation\WP_Webhook_Framework\Webhook {
     }
     
     public function init(): void {
-        if ( ! $this->is_enabled() ) {
-            return;
-        }
-        
         add_action( 'gform_after_submission', array( $this, 'on_submit' ), 10, 2 );
     }
     
@@ -226,7 +209,7 @@ See [Webhook Statefulness](./webhook-statefulness.md) for details.
 
 ## Best Practices
 
-1. **Check `is_enabled()`** in `init()` before registering hooks
+1. **Only register what you need** - registering a webhook activates it immediately
 2. **Check plugin existence** before registering integration webhooks
 3. **Keep webhooks stateless** - pass data to `emit()`, don't store on instance
 4. **Use meaningful names** - lowercase with underscores

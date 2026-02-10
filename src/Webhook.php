@@ -63,13 +63,6 @@ abstract class Webhook {
 	protected int $timeout = 30;
 
 	/**
-	 * Whether this webhook is enabled.
-	 *
-	 * @var bool
-	 */
-	protected bool $enabled = true;
-
-	/**
 	 * Custom webhook URL (optional).
 	 *
 	 * @var string
@@ -139,17 +132,6 @@ abstract class Webhook {
 	 */
 	public function timeout( int $timeout ): static {
 		$this->timeout = max( 1, min( self::MAX_TIMEOUT, $timeout ) );
-		return $this;
-	}
-
-	/**
-	 * Enable or disable this webhook.
-	 *
-	 * @param bool $enabled Whether the webhook is enabled.
-	 * @return static
-	 */
-	public function enabled( bool $enabled = true ): static {
-		$this->enabled = $enabled;
 		return $this;
 	}
 
@@ -287,23 +269,6 @@ abstract class Webhook {
 		 * @param string $webhook_name The webhook name/identifier.
 		 */
 		return (int) apply_filters( 'wpwf_timeout', $this->timeout, $this->name );
-	}
-
-	/**
-	 * Check if this webhook is enabled.
-	 *
-	 * Applies 'wpwf_webhook_enabled' filter for runtime modification.
-	 *
-	 * @return bool
-	 */
-	public function is_enabled(): bool {
-		/**
-		 * Filter whether the webhook is enabled.
-		 *
-		 * @param bool   $enabled      Whether the webhook is enabled.
-		 * @param string $webhook_name The webhook name/identifier.
-		 */
-		return (bool) apply_filters( 'wpwf_webhook_enabled', $this->enabled, $this->name );
 	}
 
 	/**

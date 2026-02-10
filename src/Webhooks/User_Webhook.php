@@ -44,10 +44,6 @@ class User_Webhook extends Webhook {
 	 * Initialize the webhook by registering WordPress hooks.
 	 */
 	public function init(): void {
-		if ( ! $this->is_enabled() ) {
-			return;
-		}
-
 		add_action( 'user_register', array( $this, 'on_user_register' ), 10, 1 );
 		add_action( 'profile_update', array( $this, 'on_profile_update' ), 10, 1 );
 		add_action( 'deleted_user', array( $this, 'on_deleted_user' ), 10, 1 );
