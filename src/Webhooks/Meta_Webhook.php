@@ -168,13 +168,22 @@ class Meta_Webhook extends Webhook {
 
 				// Fetch the current persisted value for accurate change detection.
 				// $object_id is already in ACF format (123, "term_123", "user_123").
-				$old_value = get_field( $meta_key, $object_id, false );
+				if ( 'repeater' !== $field['type'] ) {
+					$old_value = get_field( $meta_key, $object_id, false );
+				} else {
+					$old_value = match ( $entity ) {
+						'post' => get_post_meta( $id, $meta_key, true ),
+						'term' => get_term_meta( $id, $meta_key, true ),
+						'user' => get_user_meta( $id, $meta_key, true ),
+						default => null,
+					};
+				}
 
 				$this->on_acf_update( $entity, (int) $id, is_array( $field ) ? $field : array(), $value, $old_value );
 
 				return $value;
 			},
-			10,
+			999,
 			3
 		);
 
@@ -366,8 +375,11 @@ class Meta_Webhook extends Webhook {
 	 */
 	private function on_meta_update( string $meta_type, int $object_id, string $meta_key, mixed $new_value, mixed $old_value = null ): void {
 		// No change, do nothing (ALWAYS use loose equality for value comparison)
-		// phpcs:ignore WordPress.PHP.StrictComparisons.LooseComparison,Universal.Operators.StrictComparisons.LooseEqual
-		if ( $new_value == $old_value ) {
+		if (
+			( empty( $new_value ) && empty( $old_value ) )
+			|| ( $new_value == $old_value ) // phpcs:ignore Universal.Operators.StrictComparisons.LooseEqual
+			|| ( is_string( $new_value ) && is_string( $old_value ) && stripslashes( $new_value ) === stripslashes( $old_value ) ) // JSON Strings are escaped from frontend saves
+		) {
 			return;
 		}
 
