@@ -23,50 +23,22 @@ use Citation\WP_Webhook_Framework\Support\AcfUtil;
  * Supports three emission modes that control which webhooks are dispatched
  * when a meta value changes:
  *
- * - `EMIT_META`:   Only emit the meta-entity webhook (entity = "meta").
- * - `EMIT_BOTH`:   Emit the meta-entity webhook AND trigger the parent
- *                   entity update webhook. This is the default.
- * - `EMIT_ENTITY`: Only trigger the parent entity update webhook
- *                   (e.g. entity = "post"). The Dispatcher deduplicates
- *                   on (url, action, entity, id), so rapid meta changes
- *                   on the same object collapse into a single delivery.
+ * - META:   Only emit the meta-entity webhook (entity = "meta").
+ * - BOTH:   Emit the meta-entity webhook AND trigger the parent
+ *           entity update webhook. This is the default.
+ * - ENTITY: Only trigger the parent entity update webhook
+ *           (e.g. entity = "post"). The Dispatcher deduplicates
+ *           on (url, action, entity, id), so rapid meta changes
+ *           on the same object collapse into a single delivery.
+ *
+ * Usage examples:
+ *   ->emission_mode( Meta_Emission_Mode::META )
+ *   ->emission_mode( Meta_Emission_Mode::BOTH )
+ *   ->emission_mode( Meta_Emission_Mode::ENTITY )
+ *   ->emission_mode( Meta_Emission_Mode::from( 'meta' ) )  // throws on invalid
+ *   ->emission_mode( Meta_Emission_Mode::tryFrom( 'meta' ) ?? Meta_Emission_Mode::BOTH )
  */
 class Meta_Webhook extends Webhook {
-
-	/**
-	 * Emit only the meta-entity webhook.
-	 *
-	 * @var string
-	 */
-	public const EMIT_META = 'meta';
-
-	/**
-	 * Emit both the meta-entity webhook and the parent entity update.
-	 *
-	 * @var string
-	 */
-	public const EMIT_BOTH = 'both';
-
-	/**
-	 * Emit only the parent entity update webhook.
-	 *
-	 * Deduplication in the Dispatcher ensures rapid meta changes on the
-	 * same object result in a single scheduled delivery.
-	 *
-	 * @var string
-	 */
-	public const EMIT_ENTITY = 'entity';
-
-	/**
-	 * Valid emission mode values.
-	 *
-	 * @var string[]
-	 */
-	private const VALID_MODES = array(
-		self::EMIT_META,
-		self::EMIT_BOTH,
-		self::EMIT_ENTITY,
-	);
 
 	/**
 	 * The meta handler instance.
@@ -78,10 +50,9 @@ class Meta_Webhook extends Webhook {
 	/**
 	 * Controls which webhooks are dispatched on meta changes.
 	 *
-	 * @var string
-	 * @phpstan-var self::EMIT_META|self::EMIT_BOTH|self::EMIT_ENTITY
+	 * @var Meta_Emission_Mode
 	 */
-	private string $emission_mode = self::EMIT_BOTH;
+	private Meta_Emission_Mode $emission_mode;
 
 	/**
 	 * Tracks meta updates already processed during this request.
@@ -105,31 +76,17 @@ class Meta_Webhook extends Webhook {
 	 */
 	public function __construct( string $name = 'meta' ) {
 		parent::__construct( $name );
-		$this->meta_handler = new Meta();
+		$this->meta_handler  = new Meta();
+		$this->emission_mode = Meta_Emission_Mode::BOTH;
 	}
 
 	/**
 	 * Set the emission mode for meta changes.
 	 *
-	 * Use one of the class constants: EMIT_META, EMIT_BOTH, or EMIT_ENTITY.
-	 *
-	 * @param string $mode The emission mode.
-	 * @phpstan-param self::EMIT_META|self::EMIT_BOTH|self::EMIT_ENTITY $mode
+	 * @param Meta_Emission_Mode $mode The emission mode.
 	 * @return static
-	 *
-	 * @throws \InvalidArgumentException If the mode is not a valid constant.
 	 */
-	public function emission_mode( string $mode ): static {
-		if ( ! in_array( $mode, self::VALID_MODES, true ) ) {
-			throw new \InvalidArgumentException(
-				sprintf(
-					'Invalid emission mode "%s". Use one of: %s',
-					esc_html( $mode ),
-					esc_html( implode( ', ', self::VALID_MODES ) )
-				)
-			);
-		}
-
+	public function emission_mode( Meta_Emission_Mode $mode ): static {
 		$this->emission_mode = $mode;
 		return $this;
 	}
@@ -137,10 +94,9 @@ class Meta_Webhook extends Webhook {
 	/**
 	 * Get the current emission mode.
 	 *
-	 * @return string
-	 * @phpstan-return self::EMIT_META|self::EMIT_BOTH|self::EMIT_ENTITY
+	 * @return Meta_Emission_Mode
 	 */
-	public function get_emission_mode(): string {
+	public function get_emission_mode(): Meta_Emission_Mode {
 		return $this->emission_mode;
 	}
 
@@ -408,7 +364,7 @@ class Meta_Webhook extends Webhook {
 		$action = $is_deletion ? 'delete' : 'update';
 
 		// Emit meta-level webhook when mode includes meta emission
-		if ( self::EMIT_META === $this->emission_mode || self::EMIT_BOTH === $this->emission_mode ) {
+		if ( $this->emission_mode->includes_meta() ) {
 			$payload = $this->meta_handler->prepare_payload( $meta_type, $object_id, $meta_key );
 			$this->emit( $action, 'meta', $object_id, $payload );
 		}
@@ -416,7 +372,7 @@ class Meta_Webhook extends Webhook {
 		// Trigger parent entity update when mode includes entity emission.
 		// The Dispatcher deduplicates on (url, action, entity, id), so
 		// rapid meta changes on the same object collapse into one delivery.
-		if ( self::EMIT_ENTITY === $this->emission_mode || self::EMIT_BOTH === $this->emission_mode ) {
+		if ( $this->emission_mode->includes_entity() ) {
 			$this->trigger_entity_update( $meta_type, $object_id );
 		}
 	}
