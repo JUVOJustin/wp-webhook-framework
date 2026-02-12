@@ -43,7 +43,7 @@ See [Configuration](./docs/configuration.mdx) for detailed configuration options
 
 ## Usage Examples
 
-### Register Webhooks
+### Register Built-in Webhooks
 
 No webhooks are active by default. Register what you need via the action:
 
@@ -54,66 +54,12 @@ add_action('wpwf_register_webhooks', function ($registry) {
     $post = new Post_Webhook();
     $post->webhook_url('https://api.example.com/posts')
          ->max_retries(3)
-         ->max_consecutive_failures(5)
-         ->timeout(60)
-         ->notifications(['blocked']);
+         ->timeout(60);
     $registry->register($post);
 });
 ```
 
-### Multiple Endpoints for the Same Entity
-
-Multiple plugins can each register their own webhook instance for the same
-entity type. Each instance gets independent URL, retry policy, timeout, and
-failure tracking:
-
-```php
-add_action('wpwf_register_webhooks', function ($registry) {
-    $analytics = new \Citation\WP_Webhook_Framework\Webhooks\Post_Webhook('post_analytics');
-    $analytics->webhook_url('https://analytics.example.com/posts')
-              ->timeout(10);
-    $registry->register($analytics);
-
-    $crm = new \Citation\WP_Webhook_Framework\Webhooks\Post_Webhook('post_crm');
-    $crm->webhook_url('https://crm.example.com/webhook')
-        ->max_retries(5)
-        ->timeout(60);
-    $registry->register($crm);
-});
-```
-
-### Create Custom Webhook
-
-```php
-class Custom_Webhook extends \Citation\WP_Webhook_Framework\Webhook {
-    
-    public function __construct() {
-        parent::__construct('my_custom_webhook');
-        
-        $this->max_retries(3)
-             ->max_consecutive_failures(3)
-             ->timeout(30)
-             ->webhook_url('https://api.example.com/custom')
-             ->headers(['Authorization' => 'Bearer token123']);
-    }
-    
-    public function init(): void {
-        add_action('my_custom_action', [$this, 'handle_action'], 10, 1);
-    }
-    
-    public function handle_action($data): void {
-        $payload = ['custom_data' => $data, 'timestamp' => time()];
-        $this->emit('action_triggered', 'custom', $data['id'], $payload);
-    }
-}
-
-// Register the webhook
-add_action('wpwf_register_webhooks', function($registry) {
-    $registry->register(new Custom_Webhook());
-});
-```
-
-See [Custom Webhooks](./docs/custom-webhooks.mdx) for detailed webhook creation guide.
+See [Configuration](./docs/configuration.mdx) for registry configuration and [Custom Webhooks](./docs/custom-webhooks.mdx) for creating your own webhooks.
 
 ### Filter Payloads
 
@@ -125,39 +71,11 @@ add_filter('wpwf_payload', function($payload, $entity, $id) {
     }
     return $payload;
 }, 10, 3);
-
-// Add custom data to user webhooks
-add_filter('wpwf_payload', function($payload, $entity, $id) {
-    if ($entity === 'user') {
-        $user = get_userdata($id);
-        $payload['email'] = $user->user_email;
-    }
-    return $payload;
-}, 10, 3);
 ```
 
 See [Hooks and Filters](./docs/hooks-and-filters.mdx) for all available hooks and filters.
 
-## Architecture Concepts
-
-### Webhook Statefulness
-
-**Important:** Webhook instances are singletons and must remain stateless. Never store per-emission data as instance properties.
-
-**Stateless (configuration):**
-```php
-// Set once during __construct() or via registry
-$this->webhook_url('https://api.example.com')
-     ->max_consecutive_failures(5);
-```
-
-**Stateful (emission data):**
-```php
-// Pass directly to emit() - NEVER store on instance
-$this->emit('update', 'post', $post_id, $payload);
-```
-
-See [Webhook Statefulness](./docs/webhook-statefulness.mdx) for detailed explanation.
+## Architecture Overview
 
 ### Core Components
 
@@ -171,6 +89,12 @@ See [Webhook Statefulness](./docs/webhook-statefulness.mdx) for detailed explana
 ```
 WordPress hook → Webhook → Handler::prepare_payload() → Webhook::emit() → Dispatcher → Action Scheduler → HTTP POST
 ```
+
+### Webhook Statefulness
+
+Webhook instances are singletons and must remain **stateless**. Never store per-emission data as instance properties. Configuration (URL, timeout, headers) is set during `init()`. Payloads and dynamic data are passed directly to `emit()`.
+
+See [Webhook Statefulness](./docs/webhook-statefulness.mdx) for detailed explanation and examples.
 
 ## Payload Structure
 
@@ -193,7 +117,7 @@ Example webhook payload:
 
 ## Failure Monitoring
 
-- **Email notifications** on first failure after retries exhausted
+- **Email notifications** on first failure after retries exhausted (opt-in via `notifications(['blocked'])`)
 - **Automatic blocking** after 10 consecutive failures within 1 hour
 - **Auto-unblock** after 1 hour
 - **Success resets** failure count and blocked status
@@ -216,3 +140,12 @@ composer run-script phpstan   # Run static analysis
 composer run-script phpcs     # Lint code
 composer run-script phpcbf    # Auto-fix code style
 ```
+
+## Documentation
+
+- [Configuration](./docs/configuration.mdx) - Webhook configuration methods, registry setup, and options
+- [Custom Webhooks](./docs/custom-webhooks.mdx) - Creating custom webhooks, plugin integrations (WooCommerce, CF7, Gravity Forms)
+- [Hooks and Filters](./docs/hooks-and-filters.mdx) - All available hooks and filters with examples
+- [Failure Handling](./docs/failure-handling.mdx) - Failure monitoring, retry mechanism, and blocking behavior
+- [Notifications](./docs/notifications.mdx) - Notification system, opt-in pattern, and custom handlers
+- [Webhook Statefulness](./docs/webhook-statefulness.mdx) - Webhook statelessness rules and best practices
