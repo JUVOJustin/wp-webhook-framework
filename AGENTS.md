@@ -33,12 +33,33 @@ Entity-based webhook framework using registry pattern. Webhooks extend abstract 
 - **Relative Links**: Use relative links for internal references within the docs folder
 - **Avoid redundancy**: If a concept is explained in one doc, reference it in others instead of repeating
 
+## Documentation Standards
+
+### Format
+- **All documentation files must use MDX format** (`.mdx` extension) with Astro Starlight frontmatter
+- Required frontmatter fields:
+  - `title` (required) - Page title displayed in browser tab and page header
+  - `description` (optional but recommended) - Used for SEO and social media previews
+  - `sidebar` (optional) - Configure sidebar display with `order`, `label`, `hidden`, `badge`
+- Use relative links with `.mdx` extension for internal documentation references
+- Example frontmatter:
+```yaml
+---
+title: Configuration
+description: Configure webhook behavior using methods, filters, and the registry.
+sidebar:
+  order: 2
+---
+```
+
+See [Astro Starlight Frontmatter Reference](https://starlight.astro.build/reference/frontmatter/) for all available options.
+
 ## Reference Documentation
 Add new docs with an "@" mention to the "AGENTS.md" including a quick explanation. Keep the docs always up to date.
-- @README.md - Quick start, basic usage, architecture overview
-- @docs/custom-webhooks.md - Creating webhooks, registry pattern, plugin integrations (WooCommerce, CF7, Gravity Forms)
-- @docs/hooks-and-filters.md - All available hooks and filters with examples
-- @docs/configuration.md - Constants, configuration methods, precedence rules
-- @docs/notifications.md - Notification system, opt-in pattern, custom handlers
-- @docs/webhook-statefulness.md - Webhook statefulness rules and best practices
-- @docs/failure-handling.md - Failure monitoring, retry mechanism, blocking behavior
+- @README.mdx - Quick start, basic usage, architecture overview
+- @docs/custom-webhooks.mdx - Creating webhooks, registry pattern, plugin integrations (WooCommerce, CF7, Gravity Forms)
+- @docs/hooks-and-filters.mdx - All available hooks and filters with examples
+- @docs/configuration.mdx - Constants, configuration methods, precedence rules
+- @docs/notifications.mdx - Notification system, opt-in pattern, custom handlers
+- @docs/webhook-statefulness.mdx - Webhook statefulness rules and best practices
+- @docs/failure-handling.mdx - Failure monitoring, retry mechanism, blocking behavior

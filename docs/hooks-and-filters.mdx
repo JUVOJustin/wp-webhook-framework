@@ -1,4 +1,9 @@
-# Hooks and Filters
+---
+title: Hooks and Filters
+description: Control webhook behavior, payloads, and delivery using WordPress hooks and filters.
+sidebar:
+  order: 4
+---
 
 Control webhook behavior, payloads, and delivery using WordPress hooks and filters.
 
@@ -17,7 +22,7 @@ add_action( 'wpwf_register_webhooks', function ( Webhook_Registry $registry ): v
 } );
 ```
 
-See [Custom Webhooks](./custom-webhooks.md) for detailed webhook creation.
+See [Custom Webhooks](./custom-webhooks.mdx) for detailed webhook creation.
 
 ### `wpwf_webhook_success`
 
@@ -71,7 +76,7 @@ add_action( 'wpwf_webhook_blocked', function ( string $url, array $response, int
 }, 10, 4 );
 ```
 
-See [Notifications](./notifications.md) for built-in notification handlers.
+See [Notifications](./notifications.mdx) for built-in notification handlers.
 
 ## Filters
 
