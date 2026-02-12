@@ -1,5 +1,5 @@
 {
-  "name": "citation-media/wp-webhook-framework",
+  "name": "juvo/wp-webhook-framework",
   "description": "Entity-level webhook framework for WordPress using Action Scheduler.",
   "type": "library",
   "license": "GPL-2.0-or-later",

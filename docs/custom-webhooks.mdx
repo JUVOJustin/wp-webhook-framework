@@ -1,4 +1,9 @@
-# Custom Webhooks
+---
+title: Custom Webhooks
+description: Create custom webhook implementations using the registry pattern.
+sidebar:
+  order: 3
+---
 
 Create custom webhook implementations using the registry pattern.
 
@@ -46,12 +51,12 @@ add_action( 'wpwf_register_webhooks', function ( Webhook_Registry $registry ): v
 |--------|-------------|---------|
 | `max_retries(int)` | Retry attempts per failed event | 0 |
 | `max_consecutive_failures(int)` | Failures before blocking (0 disables) | 10 |
-| `timeout(int)` | HTTP timeout in seconds (1-300) | 10 |
+| `timeout(int)` | HTTP timeout in seconds (1-300) | 30 |
 | `webhook_url(string)` | Custom endpoint URL | None |
 | `headers(array)` | Additional HTTP headers | [] |
 | `notifications(array)` | Notification handlers to enable | [] |
 
-See [Configuration](./configuration.md) for detailed options.
+See [Configuration](./configuration.mdx) for detailed options.
 
 ## Plugin Integration Examples
 
@@ -158,7 +163,7 @@ add_action( 'wpwf_register_webhooks', function ( Webhook_Registry $registry ): v
 This is recommended over modifying the built-in webhooks whenever different
 endpoints require different configuration (timeouts, retries, headers, etc.).
 
-See [Configuration](./configuration.md#multiple-endpoints-for-the-same-entity) for a detailed example.
+See [Configuration](./configuration.mdx#multiple-endpoints-for-the-same-entity) for a detailed example.
 
 ## Conditional Registration
 
@@ -205,7 +210,7 @@ public function handle( array $data ): void {
 private array $current_data; // NEVER DO THIS
 ```
 
-See [Webhook Statefulness](./webhook-statefulness.md) for details.
+See [Webhook Statefulness](./webhook-statefulness.mdx) for details.
 
 ## Best Practices
 

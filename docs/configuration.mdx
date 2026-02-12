@@ -1,4 +1,9 @@
-# Configuration
+---
+title: Configuration
+description: Configure webhook behavior using methods, filters, and the registry.
+sidebar:
+  order: 2
+---
 
 Configure webhook behavior using methods, filters, and the registry.
 
@@ -11,7 +16,7 @@ Configure individual webhooks using chainable methods.
 | `webhook_url(string)` | Custom endpoint URL | None |
 | `max_consecutive_failures(int)` | Failures before blocking (0 disables) | 10 |
 | `max_retries(int)` | Retry attempts per failed event | 0 |
-| `timeout(int)` | HTTP timeout in seconds (1-300) | 10 |
+| `timeout(int)` | HTTP timeout in seconds (1-300) | 30 |
 | `headers(array)` | Custom HTTP headers | [] |
 | `notifications(array)` | Enable notification handlers | [] |
 
@@ -81,11 +86,11 @@ add_action( 'wpwf_register_webhooks', function ( Webhook_Registry $registry ): v
 **Built-in handlers:**
 - `'blocked'` - Email notification when webhook URL is blocked
 
-See [Notifications](./notifications.md) for custom handlers.
+See [Notifications](./notifications.mdx) for custom handlers.
 
 ## Filter-Based Configuration
 
-Use WordPress filters for dynamic configuration. See [Hooks and Filters](./hooks-and-filters.md) for complete reference.
+Use WordPress filters for dynamic configuration. See [Hooks and Filters](./hooks-and-filters.mdx) for complete reference.
 
 **Key filters:**
 - `wpwf_url` - Dynamic URL routing
@@ -167,7 +172,7 @@ This keeps configuration, failure tracking, and retry logic fully isolated.
 | Block Duration | 1 hour (auto-unblock) |
 | Email Notification | On first block (if enabled) |
 
-See [Failure Handling](./failure-handling.md) for configuration.
+See [Failure Handling](./failure-handling.mdx) for configuration.
 
 ## Security Considerations
 

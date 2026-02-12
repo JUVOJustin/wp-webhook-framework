@@ -1,6 +1,11 @@
+---
+title: WP Webhook Framework
+description: Entity-level webhooks for WordPress using Action Scheduler. Sends non-blocking POSTs for create/update/delete of posts, terms, and users.
+---
+
 # WP Webhook Framework
 
-[![Quality Check](https://github.com/citation-media/wp-webhook-framework/actions/workflows/quality-check.yml/badge.svg)](https://github.com/citation-media/wp-webhook-framework/actions/workflows/quality-check.yml)
+[![Quality Check](https://github.com/JUVOJustin/wp-webhook-framework/actions/workflows/quality-check.yml/badge.svg)](https://github.com/JUVOJustin/wp-webhook-framework/actions/workflows/quality-check.yml)
 
 Entity-level webhooks for WordPress using Action Scheduler. Sends non-blocking POSTs for create/update/delete of posts, terms, and users. Meta changes trigger the entity update. ACF updates include field context. Features intelligent failure monitoring with email notifications, automatic blocking, and comprehensive filtering options.
 
@@ -20,7 +25,7 @@ Entity-level webhooks for WordPress using Action Scheduler. Sends non-blocking P
 ### Installation
 
 ```bash
-composer require citation-media/wp-webhook-framework
+composer require juvo/wp-webhook-framework
 ```
 
 Requires PHP 8.1+.
@@ -34,7 +39,7 @@ Ensure Action Scheduler is active (dependency is declared).
 \Citation\WP_Webhook_Framework\Service_Provider::register();
 ```
 
-See [Configuration](./docs/configuration.md) for detailed configuration options.
+See [Configuration](./docs/configuration.mdx) for detailed configuration options.
 
 ## Usage Examples
 
@@ -108,7 +113,7 @@ add_action('wpwf_register_webhooks', function($registry) {
 });
 ```
 
-See [Custom Webhooks](./docs/custom-webhooks.md) for detailed webhook creation guide.
+See [Custom Webhooks](./docs/custom-webhooks.mdx) for detailed webhook creation guide.
 
 ### Filter Payloads
 
@@ -131,7 +136,7 @@ add_filter('wpwf_payload', function($payload, $entity, $id) {
 }, 10, 3);
 ```
 
-See [Hooks and Filters](./docs/hooks-and-filters.md) for all available hooks and filters.
+See [Hooks and Filters](./docs/hooks-and-filters.mdx) for all available hooks and filters.
 
 ## Architecture Concepts
 
@@ -152,7 +157,7 @@ $this->webhook_url('https://api.example.com')
 $this->emit('update', 'post', $post_id, $payload);
 ```
 
-See [Webhook Statefulness](./docs/webhook-statefulness.md) for detailed explanation.
+See [Webhook Statefulness](./docs/webhook-statefulness.mdx) for detailed explanation.
 
 ### Core Components
 
@@ -193,7 +198,7 @@ Example webhook payload:
 - **Auto-unblock** after 1 hour
 - **Success resets** failure count and blocked status
 
-See [Failure Handling](./docs/failure-handling.md) for configuration and customization.
+See [Failure Handling](./docs/failure-handling.mdx) for configuration and customization.
 
 ## Code Quality
 

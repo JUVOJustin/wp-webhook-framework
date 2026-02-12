@@ -1,4 +1,9 @@
-# Webhook Statefulness Guide
+---
+title: Webhook Statefulness
+description: Webhook instances are singletons and must remain stateless to prevent race conditions.
+sidebar:
+  order: 7
+---
 
 ## Overview
 
@@ -100,4 +105,4 @@ This approach keeps all early-exit checks (equality, exclusions) running immedia
 
 Following this pattern ensures your webhook implementations are thread-safe, predictable, and maintainable.
 
-See [Custom Webhooks](./custom-webhooks.md) for implementation examples.
+See [Custom Webhooks](./custom-webhooks.mdx) for implementation examples.
