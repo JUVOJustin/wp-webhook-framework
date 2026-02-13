@@ -2,14 +2,14 @@
 /**
  * Abstract base class for webhook notifications.
  *
- * @package Citation\WP_Webhook_Framework
+ * @package juvo\WP_Webhook_Framework
  */
 
 declare(strict_types=1);
 
-namespace Citation\WP_Webhook_Framework\Notifications;
+namespace juvo\WP_Webhook_Framework\Notifications;
 
-use Citation\WP_Webhook_Framework\Webhook;
+use juvo\WP_Webhook_Framework\Webhook;
 
 /**
  * Base notification handler class.

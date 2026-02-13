@@ -4,12 +4,12 @@
  *
  * Native enum controlling which webhooks are dispatched on meta changes.
  *
- * @package Citation\WP_Webhook_Framework\Webhooks
+ * @package juvo\WP_Webhook_Framework\Webhooks
  */
 
 declare(strict_types=1);
 
-namespace Citation\WP_Webhook_Framework\Webhooks;
+namespace juvo\WP_Webhook_Framework\Webhooks;
 
 /**
  * Emission mode controlling which webhooks are dispatched on meta changes.

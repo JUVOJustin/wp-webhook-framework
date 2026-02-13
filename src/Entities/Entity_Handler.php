@@ -2,12 +2,12 @@
 /**
  * Abstract base class for entity handlers.
  *
- * @package Citation\WP_Webhook_Framework\Entities
+ * @package juvo\WP_Webhook_Framework\Entities
  */
 
 declare(strict_types=1);
 
-namespace Citation\WP_Webhook_Framework\Entities;
+namespace juvo\WP_Webhook_Framework\Entities;
 
 /**
  * Abstract base class for entity handlers.

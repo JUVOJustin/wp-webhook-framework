@@ -2,12 +2,12 @@
 /**
  * Notification registry for managing webhook notification handlers.
  *
- * @package Citation\WP_Webhook_Framework
+ * @package juvo\WP_Webhook_Framework
  */
 
 declare(strict_types=1);
 
-namespace Citation\WP_Webhook_Framework\Notifications;
+namespace juvo\WP_Webhook_Framework\Notifications;
 
 /**
  * Registry for notification handlers.

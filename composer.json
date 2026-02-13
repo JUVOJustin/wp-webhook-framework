@@ -9,7 +9,7 @@
   },
   "autoload": {
     "psr-4": {
-      "Citation\\WP_Webhook_Framework\\": "src/"
+      "juvo\\WP_Webhook_Framework\\": "src/"
     }
   },
   "archive": {

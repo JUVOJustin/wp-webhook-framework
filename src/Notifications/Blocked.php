@@ -2,12 +2,12 @@
 /**
  * Failure notification handler.
  *
- * @package Citation\WP_Webhook_Framework
+ * @package juvo\WP_Webhook_Framework
  */
 
-namespace Citation\WP_Webhook_Framework\Notifications;
+namespace juvo\WP_Webhook_Framework\Notifications;
 
-use Citation\WP_Webhook_Framework\Webhook;
+use juvo\WP_Webhook_Framework\Webhook;
 
 /**
  * Sends email notifications when webhooks fail after reaching threshold.

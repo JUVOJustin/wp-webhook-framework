@@ -2,10 +2,10 @@
 /**
  * Data Transfer Object for webhook failure data.
  *
- * @package Citation\WP_Webhook_Framework
+ * @package juvo\WP_Webhook_Framework
  */
 
-namespace Citation\WP_Webhook_Framework;
+namespace juvo\WP_Webhook_Framework;
 
 /**
  * Data Transfer Object for webhook failure data.

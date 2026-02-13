@@ -2,12 +2,12 @@
 /**
  * Base webhook class with configuration methods.
  *
- * @package Citation\WP_Webhook_Framework
+ * @package juvo\WP_Webhook_Framework
  */
 
 declare(strict_types=1);
 
-namespace Citation\WP_Webhook_Framework;
+namespace juvo\WP_Webhook_Framework;
 
 /**
  * Base webhook class with configuration capabilities.

@@ -2,10 +2,10 @@
 /**
  * Post entity handler for handling post-related webhook events.
  *
- * @package Citation\WP_Webhook_Framework\Entities
+ * @package juvo\WP_Webhook_Framework\Entities
  */
 
-namespace Citation\WP_Webhook_Framework\Entities;
+namespace juvo\WP_Webhook_Framework\Entities;
 
 /**
  * Post entity handler.
