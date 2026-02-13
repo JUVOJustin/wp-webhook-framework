@@ -2,10 +2,10 @@
 /**
  * User entity handler for handling user-related webhook events.
  *
- * @package Citation\WP_Webhook_Framework\Entities
+ * @package juvo\WP_Webhook_Framework\Entities
  */
 
-namespace Citation\WP_Webhook_Framework\Entities;
+namespace juvo\WP_Webhook_Framework\Entities;
 
 /**
  * User entity handler.

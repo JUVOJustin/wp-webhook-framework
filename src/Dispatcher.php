@@ -2,10 +2,10 @@
 /**
  * Webhook dispatcher class.
  *
- * @package Citation\WP_Webhook_Framework
+ * @package juvo\WP_Webhook_Framework
  */
 
-namespace Citation\WP_Webhook_Framework;
+namespace juvo\WP_Webhook_Framework;
 
 use ActionScheduler_Store;
 use WP_Exception;

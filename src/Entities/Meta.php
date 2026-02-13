@@ -2,10 +2,10 @@
 /**
  * Meta entity handler for handling meta-related webhook events.
  *
- * @package Citation\WP_Webhook_Framework\Entities
+ * @package juvo\WP_Webhook_Framework\Entities
  */
 
-namespace Citation\WP_Webhook_Framework\Entities;
+namespace juvo\WP_Webhook_Framework\Entities;
 
 /**
  * Meta entity handler.

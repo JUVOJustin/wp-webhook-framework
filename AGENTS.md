@@ -8,7 +8,7 @@
 
 ## Code Style
 - **PHP 8.0+ library** with WordPress coding standards (WPCS 3.1)
-- **Namespace**: `Citation\WP_Webhook_Framework` (PSR-4)
+- **Namespace**: `juvo\WP_Webhook_Framework` (PSR-4)
 - **Strict types**: Always use `declare(strict_types=1);` after opening PHP tag
 - **Naming**: snake_case for methods/properties/functions (WordPress convention), PascalCase for classes
 - **Yoda conditions**: Use for all comparisons (e.g., `null === $var`)

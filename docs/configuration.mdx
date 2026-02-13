@@ -31,8 +31,8 @@ The `Meta_Webhook` supports three emission modes via `emission_mode()` and the `
 | `Meta_Emission_Mode::ENTITY` | Only emit the parent entity update | No |
 
 ```php
-use Citation\WP_Webhook_Framework\Webhooks\Meta_Emission_Mode;
-use Citation\WP_Webhook_Framework\Webhooks\Meta_Webhook;
+use juvo\WP_Webhook_Framework\Webhooks\Meta_Emission_Mode;
+use juvo\WP_Webhook_Framework\Webhooks\Meta_Webhook;
 
 $registry = Service_Provider::get_registry();
 
@@ -64,9 +64,9 @@ Register webhooks via the `wpwf_register_webhooks` action. No webhooks are
 active by default -- only those you explicitly register:
 
 ```php
-use Citation\WP_Webhook_Framework\Webhooks\Post_Webhook;
-use Citation\WP_Webhook_Framework\Webhooks\Meta_Emission_Mode;
-use Citation\WP_Webhook_Framework\Webhooks\Meta_Webhook;
+use juvo\WP_Webhook_Framework\Webhooks\Post_Webhook;
+use juvo\WP_Webhook_Framework\Webhooks\Meta_Emission_Mode;
+use juvo\WP_Webhook_Framework\Webhooks\Meta_Webhook;
 
 add_action( 'wpwf_register_webhooks', function ( Webhook_Registry $registry ): void {
     $post = new Post_Webhook();
@@ -132,13 +132,13 @@ Each instance has its own URL, retry policy, timeout, and failure tracking:
 ```php
 add_action( 'wpwf_register_webhooks', function ( Webhook_Registry $registry ): void {
     // Analytics endpoint - fast timeout, no retries
-    $analytics = new \Citation\WP_Webhook_Framework\Webhooks\Post_Webhook( 'post_analytics' );
+    $analytics = new \juvo\WP_Webhook_Framework\Webhooks\Post_Webhook( 'post_analytics' );
     $analytics->webhook_url( 'https://analytics.example.com/posts' )
               ->timeout( 10 );
     $registry->register( $analytics );
 
     // CRM endpoint - generous timeout, retries enabled
-    $crm = new \Citation\WP_Webhook_Framework\Webhooks\Post_Webhook( 'post_crm' );
+    $crm = new \juvo\WP_Webhook_Framework\Webhooks\Post_Webhook( 'post_crm' );
     $crm->webhook_url( 'https://crm.example.com/webhook' )
         ->max_retries( 5 )
         ->timeout( 60 )

@@ -2,15 +2,15 @@
 /**
  * Service_Provider class for the WP Webhook Framework.
  *
- * @package Citation\WP_Webhook_Framework
+ * @package juvo\WP_Webhook_Framework
  */
 
 declare(strict_types=1);
 
-namespace Citation\WP_Webhook_Framework;
+namespace juvo\WP_Webhook_Framework;
 
-use Citation\WP_Webhook_Framework\Notifications\Blocked;
-use Citation\WP_Webhook_Framework\Notifications\Notification_Registry;
+use juvo\WP_Webhook_Framework\Notifications\Blocked;
+use juvo\WP_Webhook_Framework\Notifications\Notification_Registry;
 
 /**
  * Bootstraps the framework by wiring up the Dispatcher, Registry, and

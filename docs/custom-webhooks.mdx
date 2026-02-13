@@ -12,7 +12,7 @@ Create custom webhook implementations using the registry pattern.
 Extend the abstract `Webhook` class and implement `init()`:
 
 ```php
-class Custom_Webhook extends \Citation\WP_Webhook_Framework\Webhook {
+class Custom_Webhook extends \juvo\WP_Webhook_Framework\Webhook {
     
     public function __construct() {
         parent::__construct( 'my_custom_webhook' );
@@ -63,7 +63,7 @@ See [Configuration](./configuration.mdx) for detailed options.
 ### WooCommerce Orders
 
 ```php
-class WooCommerce_Order_Webhook extends \Citation\WP_Webhook_Framework\Webhook {
+class WooCommerce_Order_Webhook extends \juvo\WP_Webhook_Framework\Webhook {
     
     public function __construct() {
         parent::__construct( 'woocommerce_orders' );
@@ -98,7 +98,7 @@ class WooCommerce_Order_Webhook extends \Citation\WP_Webhook_Framework\Webhook {
 ### Contact Form 7
 
 ```php
-class CF7_Webhook extends \Citation\WP_Webhook_Framework\Webhook {
+class CF7_Webhook extends \juvo\WP_Webhook_Framework\Webhook {
     
     public function __construct() {
         parent::__construct( 'cf7_submissions' );
@@ -126,7 +126,7 @@ class CF7_Webhook extends \Citation\WP_Webhook_Framework\Webhook {
 ### Gravity Forms
 
 ```php
-class Gravity_Forms_Webhook extends \Citation\WP_Webhook_Framework\Webhook {
+class Gravity_Forms_Webhook extends \juvo\WP_Webhook_Framework\Webhook {
     
     public function __construct() {
         parent::__construct( 'gravity_forms' );
@@ -153,7 +153,7 @@ Each instance has its own URL, retry policy, timeout, and failure tracking:
 
 ```php
 add_action( 'wpwf_register_webhooks', function ( Webhook_Registry $registry ): void {
-    $analytics = new \Citation\WP_Webhook_Framework\Webhooks\Post_Webhook( 'post_analytics' );
+    $analytics = new \juvo\WP_Webhook_Framework\Webhooks\Post_Webhook( 'post_analytics' );
     $analytics->webhook_url( 'https://analytics.example.com/posts' )
               ->timeout( 10 );
     $registry->register( $analytics );

@@ -2,12 +2,12 @@
 /**
  * Utility class for parsing ACF object IDs.
  *
- * @package Citation\WP_Webhook_Framework\Support
+ * @package juvo\WP_Webhook_Framework\Support
  */
 
 declare(strict_types=1);
 
-namespace Citation\WP_Webhook_Framework\Support;
+namespace juvo\WP_Webhook_Framework\Support;
 
 /**
  * Parses ACF object IDs into entity + numeric id.

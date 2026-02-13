@@ -2,15 +2,15 @@
 /**
  * User webhook implementation.
  *
- * @package Citation\WP_Webhook_Framework\Webhooks
+ * @package juvo\WP_Webhook_Framework\Webhooks
  */
 
 declare(strict_types=1);
 
-namespace Citation\WP_Webhook_Framework\Webhooks;
+namespace juvo\WP_Webhook_Framework\Webhooks;
 
-use Citation\WP_Webhook_Framework\Webhook;
-use Citation\WP_Webhook_Framework\Entities\User;
+use juvo\WP_Webhook_Framework\Webhook;
+use juvo\WP_Webhook_Framework\Entities\User;
 
 /**
  * User webhook implementation with configuration capabilities.
