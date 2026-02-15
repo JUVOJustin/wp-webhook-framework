@@ -2,22 +2,24 @@
 /**
  * Data Transfer Object for webhook failure data.
  *
- * @package Citation\WP_Webhook_Framework
+ * @package juvo\WP_Webhook_Framework
  */
 
-declare(strict_types=1);
-
-namespace Citation\WP_Webhook_Framework;
+namespace juvo\WP_Webhook_Framework;
 
 /**
  * Data Transfer Object for webhook failure data.
  *
- * Encapsulates failure tracking data with type safety and convenient methods.
+ * Tracks consecutive failed webhook events (not retry attempts) per URL.
+ * Each increment represents a unique webhook that failed after all retries exhausted.
  */
 class Failure {
 
 	/**
-	 * Number of consecutive failures.
+	 * Number of consecutive failed webhook events.
+	 *
+	 * This counts unique webhook events that failed after all retries exhausted,
+	 * not individual retry attempts. Example: 3 webhooks each failing after 5 retries = count of 3.
 	 *
 	 * @var int
 	 */
@@ -96,7 +98,9 @@ class Failure {
 	}
 
 	/**
-	 * Get failure count.
+	 * Get failed webhook count.
+	 *
+	 * Returns the number of consecutive webhook events that failed after all retries exhausted.
 	 *
 	 * @return int
 	 */

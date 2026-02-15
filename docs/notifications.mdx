@@ -1,0 +1,167 @@
+---
+title: Notifications
+description: Extensible notification system for webhook events using registry pattern. Notifications are opt-in per webhook.
+sidebar:
+  order: 6
+---
+
+Extensible notification system for webhook events using registry pattern. Notifications are **opt-in** per webhook.
+
+## Overview
+
+Respond to webhook events (success, failure, blocking) with custom handlers like email alerts, Slack messages, or monitoring integrations.
+
+## Core Concepts
+
+### Notification Handlers
+
+Each handler:
+- Extends `Notification` abstract class
+- Implements `get_identifier(): string`
+- Implements `init(): void` to register hooks
+- Is **opt-in** per webhook
+
+### Enabling Notifications
+
+```php
+add_action( 'wpwf_register_webhooks', function ( Webhook_Registry $registry ): void {
+    $post_webhook = $registry->get( 'post' );
+    if ( null !== $post_webhook ) {
+        $post_webhook->notifications( array( 'blocked' ) );
+    }
+} );
+```
+
+## Built-in: `blocked` Email Notification
+
+Sends email when a webhook URL is blocked.
+
+**Identifier:** `'blocked'`  
+**Triggers on:** `wpwf_webhook_blocked`  
+**Recipient:** Site admin (`admin_email`)
+
+### Customizing Email
+
+```php
+add_filter( 'wpwf_blocked_notification_email', function ( array $email_data, string $url, mixed $response ): array {
+    $email_data['recipient'] = 'webhooks@example.com';
+    $email_data['subject']   = sprintf( '[URGENT] Webhook Blocked: %s', $url );
+    return $email_data;
+}, 10, 3 );
+```
+
+## Custom Notification Handlers
+
+### Creating a Handler
+
+```php
+class Slack_Notification extends Notification {
+
+    private string $webhook_url;
+
+    public function __construct( string $webhook_url ) {
+        $this->webhook_url = $webhook_url;
+    }
+
+    public function get_identifier(): string {
+        return 'slack';
+    }
+
+    public function init(): void {
+        add_action( 'wpwf_webhook_blocked', array( $this, 'send_alert' ), 10, 4 );
+    }
+
+    public function send_alert( string $url, array $response, int $max_failures, Webhook $webhook ): void {
+        wp_remote_post( $this->webhook_url, array(
+            'body'    => wp_json_encode( array(
+                'text' => "Webhook '{$webhook->get_name()}' blocked: {$url}",
+            ) ),
+            'headers' => array( 'Content-Type' => 'application/json' ),
+        ) );
+    }
+}
+```
+
+### Registering Handlers
+
+```php
+add_action( 'wpwf_register_notifications', function ( Notification_Registry $registry ): void {
+    $url = get_option( 'slack_webhook_url' );
+    if ( ! empty( $url ) ) {
+        $registry->register( new Slack_Notification( $url ) );
+    }
+} );
+```
+
+### Enabling Custom Handlers
+
+```php
+add_action( 'wpwf_register_webhooks', function ( Webhook_Registry $registry ): void {
+    $webhook = $registry->get( 'post' );
+    if ( null !== $webhook ) {
+        $webhook->notifications( array( 'blocked', 'slack' ) );
+    }
+} );
+```
+
+## Notification Registry API
+
+```php
+$registry = Service_Provider::get_notification_registry();
+
+$registry->is_registered( 'slack' );           // bool
+$registry->get_registered_identifiers();       // array<string>
+$registry->get( 'blocked' );                   // Notification|null
+```
+
+## Best Practices
+
+### Conditional Registration
+
+```php
+add_action( 'wpwf_register_notifications', function ( Notification_Registry $registry ): void {
+    $api_key = get_option( 'monitoring_api_key' );
+    if ( ! empty( $api_key ) ) {
+        $registry->register( new Monitoring_Notification( $api_key ) );
+    }
+} );
+```
+
+### Environment-Specific
+
+```php
+add_action( 'wpwf_register_webhooks', function ( Webhook_Registry $registry ): void {
+    $webhook = $registry->get( 'post' );
+    if ( null === $webhook ) {
+        return;
+    }
+
+    $notifications = array( 'blocked' );
+    if ( 'production' === wp_get_environment_type() ) {
+        $notifications[] = 'slack';
+    }
+    
+    $webhook->notifications( $notifications );
+} );
+```
+
+### Error Handling
+
+```php
+public function send_notification( string $url, mixed $response ): void {
+    $result = wp_remote_post( $this->endpoint, array(
+        'body'    => $this->build_payload( $url, $response ),
+        'timeout' => 5,
+    ) );
+
+    if ( is_wp_error( $result ) ) {
+        error_log( 'Notification failed: ' . $result->get_error_message() );
+    }
+}
+```
+
+## See Also
+
+- [Failure Handling](./failure-handling.mdx) - Retry and blocking mechanics
+- [Configuration](./configuration.mdx) - Webhook configuration options
+- [Hooks and Filters](./hooks-and-filters.mdx) - All available hooks

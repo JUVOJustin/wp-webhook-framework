@@ -1,0 +1,151 @@
+---
+title: WP Webhook Framework
+description: Entity-level webhooks for WordPress using Action Scheduler. Sends non-blocking POSTs for create/update/delete of posts, terms, and users.
+---
+
+# WP Webhook Framework
+
+[![Quality Check](https://github.com/JUVOJustin/wp-webhook-framework/actions/workflows/quality-check.yml/badge.svg)](https://github.com/JUVOJustin/wp-webhook-framework/actions/workflows/quality-check.yml)
+
+Entity-level webhooks for WordPress using Action Scheduler. Sends non-blocking POSTs for create/update/delete of posts, terms, and users. Meta changes trigger the entity update. ACF updates include field context. Features intelligent failure monitoring with email notifications, automatic blocking, and comprehensive filtering options.
+
+## Features
+
+- **Action Scheduler dispatch** - 5s delay, non-blocking async delivery
+- **Automatic deduplication** - Dispatcher-level on action+entity+id and meta-level per-request dedup for plugin hooks (ACF, Meta Box, etc.)
+- **Entity-aware payloads** - Includes post_type, taxonomy, or roles
+- **ACF integration** - Adds field key/name context to meta changes
+- **Registry pattern** - Extensible webhook system with custom configurations
+- **Notification system** - Opt-in email alerts for failures, extensible notification handlers
+- **Failure monitoring** - Automatic blocking after consecutive failures
+- **Comprehensive filtering** - Control payloads, URLs, headers, and meta keys
+
+## Quick Start
+
+### Installation
+
+```bash
+composer require juvo/wp-webhook-framework
+```
+
+Requires PHP 8.1+.
+
+Ensure Action Scheduler is active (dependency is declared).
+
+### Basic Setup
+
+```php
+// Initialize the framework
+\juvo\WP_Webhook_Framework\Service_Provider::register();
+```
+
+See [Configuration](./docs/configuration.mdx) for detailed configuration options.
+
+## Usage Examples
+
+### Register Built-in Webhooks
+
+No webhooks are active by default. Register what you need via the action:
+
+```php
+use juvo\WP_Webhook_Framework\Webhooks\Post_Webhook;
+
+add_action('wpwf_register_webhooks', function ($registry) {
+    $post = new Post_Webhook();
+    $post->webhook_url('https://api.example.com/posts')
+         ->max_retries(3)
+         ->timeout(60);
+    $registry->register($post);
+});
+```
+
+See [Configuration](./docs/configuration.mdx) for registry configuration and [Custom Webhooks](./docs/custom-webhooks.mdx) for creating your own webhooks.
+
+### Filter Payloads
+
+```php
+// Prevent delete webhooks
+add_filter('wpwf_payload', function($payload, $entity, $id) {
+    if ($payload['action'] === 'delete') {
+        return []; // Return empty array to prevent webhook
+    }
+    return $payload;
+}, 10, 3);
+```
+
+See [Hooks and Filters](./docs/hooks-and-filters.mdx) for all available hooks and filters.
+
+## Architecture Overview
+
+### Core Components
+
+- **Service_Provider** - Singleton that bootstraps the framework
+- **Webhook_Registry** - Manages webhook instances and initialization
+- **Webhook** (abstract) - Base class for all webhooks
+- **Dispatcher** - Schedules and sends HTTP requests via Action Scheduler
+- **Entity Handlers** - Prepare payloads for posts, terms, users, and meta
+
+**Data Flow:**
+```
+WordPress hook → Webhook → Handler::prepare_payload() → Webhook::emit() → Dispatcher → Action Scheduler → HTTP POST
+```
+
+### Webhook Statefulness
+
+Webhook instances are singletons and must remain **stateless**. Never store per-emission data as instance properties. Configuration (URL, timeout, headers) is set during `init()`. Payloads and dynamic data are passed directly to `emit()`.
+
+See [Webhook Statefulness](./docs/webhook-statefulness.mdx) for detailed explanation and examples.
+
+## Payload Structure
+
+Example webhook payload:
+
+```json
+{
+  "action": "update",
+  "entity": "post",
+  "id": 123,
+  "post_type": "post"
+}
+```
+
+**Entity-specific invariants:**
+- Post: `post_type`
+- Term: `taxonomy`
+- User: `roles[]`
+- Meta: `acf_field_key`, `acf_field_name` (if ACF field)
+
+## Failure Monitoring
+
+- **Email notifications** on first failure after retries exhausted (opt-in via `notifications(['blocked'])`)
+- **Automatic blocking** after 10 consecutive failures within 1 hour
+- **Auto-unblock** after 1 hour
+- **Success resets** failure count and blocked status
+
+See [Failure Handling](./docs/failure-handling.mdx) for configuration and customization.
+
+## Code Quality
+
+- **PHPCS Compliant** - WordPress coding standards (WPCS 3.1)
+- **Type Safe** - PHPStan level 6 static analysis
+- **i18n Ready** - All user-facing strings internationalized
+- **Filterable** - Extensive WordPress filter integration
+- **Well Documented** - Comprehensive inline documentation
+
+## Commands
+
+```bash
+composer install              # Install dependencies
+composer run-script phpstan   # Run static analysis
+composer run-script phpcs     # Lint code
+composer run-script phpcbf    # Auto-fix code style
+```
+
+## Documentation
+
+- [Configuration](./docs/configuration.mdx) - Webhook configuration methods, registry setup, and options
+- [Custom Webhooks](./docs/custom-webhooks.mdx) - Creating custom webhooks, plugin integrations (WooCommerce, CF7, Gravity Forms)
+- [Hooks and Filters](./docs/hooks-and-filters.mdx) - All available hooks and filters with examples
+- [Failure Handling](./docs/failure-handling.mdx) - Failure monitoring, retry mechanism, and blocking behavior
+- [Notifications](./docs/notifications.mdx) - Notification system, opt-in pattern, and custom handlers
+- [Webhook Statefulness](./docs/webhook-statefulness.mdx) - Webhook statelessness rules and best practices

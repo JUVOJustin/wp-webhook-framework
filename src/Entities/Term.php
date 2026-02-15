@@ -1,64 +1,44 @@
 <?php
 /**
- * TermEmitter class for handling term-related webhook events.
+ * Term entity handler for handling term-related webhook events.
  *
- * @package Citation\WP_Webhook_Framework\Entities
+ * @package juvo\WP_Webhook_Framework\Entities
  */
 
-namespace Citation\WP_Webhook_Framework\Entities;
+namespace juvo\WP_Webhook_Framework\Entities;
 
-use Citation\WP_Webhook_Framework\Dispatcher;
-use Citation\WP_Webhook_Framework\Support\Payload;
+use WP_Term;
 
 /**
- * Class TermEmitter
+ * Term entity handler.
  *
- * Emits webhooks for term lifecycle and meta changes.
+ * Transforms term data into webhook payloads.
  */
-class Term extends Emitter {
-
-
+class Term extends Entity_Handler {
 
 	/**
-	 * Handle term creation event.
+	 * Prepare payload for a term.
 	 *
-	 * @param int    $term_id  The term ID.
-	 * @param int    $tt_id    The term taxonomy ID.
-	 * @param string $taxonomy The taxonomy name.
+	 * @param int $term_id The term ID.
+	 * @return array<string,mixed> The prepared payload data containing taxonomy and REST URL if supported.
 	 */
-	public function on_created_term( int $term_id, int $tt_id, string $taxonomy ): void {
-		$this->emit( $term_id, 'create' );
-	}
+	public function prepare_payload( int $term_id ): array {
+		$term = get_term( $term_id );
 
-	/**
-	 * Handle term update event.
-	 *
-	 * @param int    $term_id  The term ID.
-	 * @param int    $tt_id    The term taxonomy ID.
-	 * @param string $taxonomy The taxonomy name.
-	 */
-	public function on_edited_term( int $term_id, int $tt_id, string $taxonomy ): void {
-		$this->emit( $term_id, 'update' );
-	}
+		// Return empty payload if term is not found.
+		if ( ! is_a( $term, WP_Term::class ) ) {
+			return array();
+		}
 
-	/**
-	 * Handle term deletion event.
-	 *
-	 * @param int    $term_id  The term ID.
-	 * @param int    $tt_id    The term taxonomy ID.
-	 * @param string $taxonomy The taxonomy name.
-	 */
-	public function on_deleted_term( int $term_id, int $tt_id, string $taxonomy ): void {
-		$this->emit( $term_id, 'delete' );
-	}
+		$taxonomy = $term->taxonomy;
+		$payload  = array( 'taxonomy' => $taxonomy );
 
-	/**
-	 * Emit a webhook for a term action.
-	 *
-	 * @param int    $term_id The term ID.
-	 * @param string $action  The action performed (create/update/delete).
-	 */
-	public function emit( int $term_id, string $action ): void {
-		$this->schedule( $action, 'term', $term_id, Payload::term( $term_id ) );
+		// Add REST API URL if taxonomy has REST support enabled
+		$taxonomy_object = get_taxonomy( $taxonomy );
+		if ( $taxonomy_object && $taxonomy_object->show_in_rest && $taxonomy_object->rest_base ) {
+			$payload['rest_url'] = rest_url( "wp/v2/{$taxonomy_object->rest_base}/{$term_id}" );
+		}
+
+		return $payload;
 	}
 }

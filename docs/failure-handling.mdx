@@ -1,0 +1,120 @@
+---
+title: Failure Handling
+description: Automatic failure monitoring, retry mechanism, and blocking system for webhook reliability.
+sidebar:
+  order: 5
+---
+
+Automatic failure monitoring, retry mechanism, and blocking system for webhook reliability.
+
+For email notifications and custom handlers, see [Notifications](./notifications.mdx).
+
+## Critical Distinction: Retries vs. Blocking
+
+| Concept | Scope | Configuration |
+|---------|-------|---------------|
+| **Retry** | Single webhook event | `max_retries()` |
+| **Blocking** | All webhooks to a URL | `max_consecutive_failures()` |
+
+**Retry**: Framework automatically retries a single failed webhook event (e.g., "Post #123 update") with exponential backoff.
+
+**Blocking**: Stops all webhooks to a URL after multiple distinct events have failed, preventing resource waste on dead endpoints.
+
+## Retry Mechanism
+
+### Configuration
+
+```php
+$webhook->max_retries( 3 )  // Retry 3 times before giving up (default: 0)
+        ->timeout( 30 );     // 30 second timeout per attempt
+```
+
+### Exponential Backoff
+
+Failed webhooks are retried with increasing delays:
+
+| Retry | Delay |
+|-------|-------|
+| 1 | 1 minute |
+| 2 | 2 minutes |
+| 3 | 4 minutes |
+| 4 | 8 minutes |
+
+Retry count is tracked in `wpwf-retry-count` header.
+
+### Customizing Retry Delays
+
+```php
+// Static 5-minute delay for all retries
+add_filter( 'wpwf_retry_delay', fn() => 300 );
+
+// Faster retries for critical webhooks
+add_filter( 'wpwf_retry_base_time', function ( int $base, string $name, int $count ): int {
+    return 'critical_webhook' === $name ? 10 : $base;
+}, 10, 3 );
+```
+
+## Failure Tracking & Blocking
+
+### Flow
+
+1. **Webhook fails** → Retries attempted according to `max_retries()`
+2. **All retries fail** → Failure count incremented for URL
+3. **Threshold reached** → URL blocked, `wpwf_webhook_blocked` action fired
+4. **Success** → Counter reset, URL unblocked
+
+### Configuration
+
+```php
+$webhook->max_consecutive_failures( 10 ); // Block after 10 failed events (default)
+$webhook->max_consecutive_failures( 0 );  // Disable blocking entirely
+```
+
+**Disabling blocking:** When set to 0:
+- `wpwf_webhook_failed` action still fires
+- Failure counts are not tracked
+- `wpwf_webhook_blocked` never fires
+- Webhooks continue regardless of failures
+
+## Failure Data Structure
+
+Per-URL state stored in transient `wpwf_failures_{md5($url)}`:
+
+```php
+array(
+    'failed_webhook_count' => 5,          // Failed events (not retry attempts)
+    'first_failure_at'     => 1234567890, // Window start timestamp
+    'blocked'              => true,       // Blocked status
+    'blocked_time'         => 1234567890, // Block timestamp
+)
+```
+
+**Expiration:** 1 hour (auto-unblock)
+
+## Webhook Status Actions
+
+For detailed action documentation, see [Hooks and Filters](./hooks-and-filters.mdx#actions).
+
+| Action | When Fired |
+|--------|------------|
+| `wpwf_webhook_success` | Successful delivery |
+| `wpwf_webhook_failed` | Failed after retries |
+| `wpwf_webhook_blocked` | URL blocked |
+
+## Default Settings
+
+| Setting | Value |
+|---------|-------|
+| Failure Threshold | 10 consecutive events |
+| Block Duration | 1 hour (auto-unblock) |
+| Retry Attempts | 0 (disabled) |
+| Retry Base Time | 60 seconds |
+
+## Implementation
+
+**Files:** `src/Dispatcher.php`, `src/Failure.php`, `src/Webhook.php`
+
+**Key methods:**
+- `Dispatcher::schedule_retry_if_applicable()` - Schedules retry with backoff
+- `Webhook::calculate_retry_delay()` - Calculates exponential delay
+- `Dispatcher::trigger_webhook_failure()` - Tracks failures, fires actions

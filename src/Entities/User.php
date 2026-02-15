@@ -1,58 +1,35 @@
 <?php
 /**
- * UserEmitter class for handling user-related webhook events.
+ * User entity handler for handling user-related webhook events.
  *
- * @package Citation\WP_Webhook_Framework\Entities
+ * @package juvo\WP_Webhook_Framework\Entities
  */
 
-namespace Citation\WP_Webhook_Framework\Entities;
-
-use Citation\WP_Webhook_Framework\Dispatcher;
-use Citation\WP_Webhook_Framework\Support\Payload;
+namespace juvo\WP_Webhook_Framework\Entities;
 
 /**
- * Class UserEmitter
+ * User entity handler.
  *
- * Emits webhooks for user lifecycle and meta changes.
+ * Transforms user data into webhook payloads.
  */
-class User extends Emitter {
-
-
+class User extends Entity_Handler {
 
 	/**
-	 * Handle user registration event.
+	 * Prepare payload for a user.
 	 *
 	 * @param int $user_id The user ID.
+	 * @return array<string,mixed> The prepared payload data containing user roles and REST URL if supported.
 	 */
-	public function on_user_register( int $user_id ): void {
-		$this->emit( $user_id, 'create' );
-	}
+	public function prepare_payload( int $user_id ): array {
+		$user    = get_userdata( $user_id );
+		$roles   = ( $user && $user->roles ) ? array_values( $user->roles ) : array();
+		$payload = array( 'roles' => $roles );
 
-	/**
-	 * Handle user profile update event.
-	 *
-	 * @param int $user_id The user ID.
-	 */
-	public function on_profile_update( int $user_id ): void {
-		$this->emit( $user_id, 'update' );
-	}
+		// Add REST API URL if users endpoint has REST support enabled
+		if ( class_exists( 'WP_REST_Users_Controller' ) ) {
+			$payload['rest_url'] = rest_url( "wp/v2/users/{$user_id}" );
+		}
 
-	/**
-	 * Emit a webhook for a user action.
-	 *
-	 * @param int    $user_id The user ID.
-	 * @param string $action  The action performed (create/update/delete).
-	 */
-	public function emit( int $user_id, string $action ): void {
-		$this->schedule( $action, 'user', $user_id, Payload::user( $user_id ) );
-	}
-
-	/**
-	 * Handle user deletion event.
-	 *
-	 * @param int $user_id The user ID.
-	 */
-	public function on_deleted_user( int $user_id ): void {
-		$this->emit( $user_id, 'delete' );
+		return $payload;
 	}
 }

@@ -1,16 +1,25 @@
 {
-  "name": "citation-media/wp-webhook-framework",
+  "name": "juvo/wp-webhook-framework",
   "description": "Entity-level webhook framework for WordPress using Action Scheduler.",
   "type": "library",
   "license": "GPL-2.0-or-later",
   "require": {
-    "php": ">=8.0",
+    "php": ">=8.1",
     "woocommerce/action-scheduler": "^3.7"
   },
   "autoload": {
     "psr-4": {
-      "Citation\\WP_Webhook_Framework\\": "src/"
+      "juvo\\WP_Webhook_Framework\\": "src/"
     }
+  },
+  "archive": {
+    "exclude": [
+      "/docs",
+      "/.github",
+      "/phpcs.xml",
+      "/phpstan.neon",
+      "/AGENTS.md"
+    ]
   },
   "scripts": {
     "phpstan": "@php ./vendor/bin/phpstan analyse",
