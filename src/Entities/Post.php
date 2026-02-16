@@ -18,11 +18,13 @@ class Post extends Entity_Handler {
 	/**
 	 * Prepare payload for a post.
 	 *
+	 * Persists minimal event context for async delivery.
+	 *
 	 * @param int $post_id The post ID.
-	 * @return array<string,mixed> The prepared payload data containing post type.
+	 * @return array<string,mixed> The prepared payload data containing the post ID.
 	 */
 	public function prepare_payload( int $post_id ): array {
-		return array( 'post_type' => get_post_type( $post_id ) );
+		return array( 'id' => $post_id );
 	}
 
 	/**
@@ -33,16 +35,18 @@ class Post extends Entity_Handler {
 	 * @return array<string,mixed> The updated payload data.
 	 */
 	public function prepare_delivery_payload( int $entity_id, array $payload ): array {
-		if ( ! empty( $payload['rest_url'] ) ) {
-			return $payload;
-		}
-
 		$post_type = $payload['post_type'] ?? '';
 		if ( ! is_string( $post_type ) || '' === $post_type ) {
 			$post_type = get_post_type( $entity_id );
 		}
 
 		if ( ! is_string( $post_type ) || '' === $post_type ) {
+			return $payload;
+		}
+
+		$payload['post_type'] = $post_type;
+
+		if ( ! empty( $payload['rest_url'] ) ) {
 			return $payload;
 		}
 

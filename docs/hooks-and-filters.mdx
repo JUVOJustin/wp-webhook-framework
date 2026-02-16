@@ -82,7 +82,7 @@ See [Notifications](./notifications.mdx) for built-in notification handlers.
 
 ### `wpwf_payload`
 
-Filter webhook payloads before scheduling. Return empty array to prevent webhook.
+Filter webhook payloads before scheduling. Payloads contain event-time fields only; derived fields are added at delivery. Return empty array to prevent webhook.
 
 **Parameters:**
 - `$payload` (array<string,mixed>) - The webhook payload data
@@ -306,7 +306,7 @@ add_filter( 'wpwf_retry_delay', fn() => 300 );
 
 ## Payload Structure
 
-Standard payload sent with all webhooks:
+Example payload (post):
 
 ```json
 {
@@ -317,13 +317,14 @@ Standard payload sent with all webhooks:
 }
 ```
 
-**Entity-specific fields:**
-- **Post**: `post_type`
-- **Term**: `taxonomy`
-- **User**: `roles` (array)
+**Persisted fields (event-time):**
+- **Meta**: `meta_type`, `meta_key`
 - **Meta**: `acf_field_key`, `acf_field_name` (if ACF field)
 
 **Derived fields (when available at send time):**
+- **Post**: `post_type`
+- **Term**: `taxonomy`
+- **User**: `roles` (array)
 - `rest_url`
 
 ## Filter Priority
