@@ -36,7 +36,8 @@ class Term extends Entity_Handler {
 		// Add REST API URL if taxonomy has REST support enabled
 		$taxonomy_object = get_taxonomy( $taxonomy );
 		if ( $taxonomy_object && $taxonomy_object->show_in_rest && $taxonomy_object->rest_base ) {
-			$payload['rest_url'] = rest_url( "wp/v2/{$taxonomy_object->rest_base}/{$term_id}" );
+			$rest_namespace      = $taxonomy_object->rest_namespace ?: 'wp/v2';
+			$payload['rest_url'] = rest_url( "{$rest_namespace}/{$taxonomy_object->rest_base}/{$term_id}" );
 		}
 
 		return $payload;
