@@ -22,10 +22,10 @@ class User extends Entity_Handler {
 	 * Persists minimal event context for async delivery.
 	 *
 	 * @param int $user_id The user ID.
-	 * @return array<string,mixed> The prepared payload data containing the user ID.
+	 * @return array<string,mixed> The prepared payload data.
 	 */
 	public function prepare_payload( int $user_id ): array {
-		return array( 'id' => $user_id );
+		return array();
 	}
 
 	/**

@@ -68,7 +68,7 @@ See [Configuration](./docs/configuration.mdx) for registry configuration and [Cu
 // Prevent delete webhooks
 add_filter('wpwf_payload', function($payload, $entity, $id) {
     if ($payload['action'] === 'delete') {
-        return []; // Return empty array to prevent webhook
+        return false; // Return false to prevent webhook
     }
     return $payload;
 }, 10, 3);

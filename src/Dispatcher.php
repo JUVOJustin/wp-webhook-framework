@@ -54,8 +54,17 @@ class Dispatcher {
 			throw new WP_Exception( 'webhook_url_blocked' );
 		}
 
-		$payload = apply_filters( 'wpwf_payload', $payload, $entity, $id );
-		if ( empty( $payload ) ) {
+		$original_payload = $payload;
+		$payload          = apply_filters( 'wpwf_payload', $payload, $entity, $id );
+		if ( false === $payload || null === $payload ) {
+			return;
+		}
+
+		if ( ! is_array( $payload ) ) {
+			throw new WP_Exception( 'webhook_payload_invalid' );
+		}
+
+		if ( empty( $payload ) && ! empty( $original_payload ) ) {
 			throw new WP_Exception( 'webhook_payload_empty' );
 		}
 

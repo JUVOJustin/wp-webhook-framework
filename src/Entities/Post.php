@@ -21,10 +21,10 @@ class Post extends Entity_Handler {
 	 * Persists minimal event context for async delivery.
 	 *
 	 * @param int $post_id The post ID.
-	 * @return array<string,mixed> The prepared payload data containing the post ID.
+	 * @return array<string,mixed> The prepared payload data.
 	 */
 	public function prepare_payload( int $post_id ): array {
-		return array( 'id' => $post_id );
+		return array();
 	}
 
 	/**

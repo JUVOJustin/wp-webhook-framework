@@ -22,10 +22,10 @@ class Term extends Entity_Handler {
 	 * Persists minimal event context for async delivery.
 	 *
 	 * @param int $term_id The term ID.
-	 * @return array<string,mixed> The prepared payload data containing the term ID.
+	 * @return array<string,mixed> The prepared payload data.
 	 */
 	public function prepare_payload( int $term_id ): array {
-		return array( 'id' => $term_id );
+		return array();
 	}
 
 	/**

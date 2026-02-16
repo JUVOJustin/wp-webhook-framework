@@ -82,20 +82,20 @@ See [Notifications](./notifications.mdx) for built-in notification handlers.
 
 ### `wpwf_payload`
 
-Filter webhook payloads before scheduling. Payloads contain event-time fields only; derived fields are added at delivery. Return empty array to prevent webhook.
+Filter webhook payloads before scheduling. Payloads contain event-time fields only; derived fields are added at delivery. Return false to prevent webhook scheduling.
 
 **Parameters:**
 - `$payload` (array<string,mixed>) - The webhook payload data
 - `$entity` (string) - The entity type (post, term, user, meta)
 - `$id` (int|string) - The entity ID
 
-**Returns:** array<string,mixed>
+**Returns:** array<string,mixed>|false
 
 ```php
 // Prevent delete webhooks
 add_filter( 'wpwf_payload', function ( array $payload, string $entity, int|string $id ): array {
     if ( 'delete' === $payload['action'] ) {
-        return array();
+        return false;
     }
     return $payload;
 }, 10, 3 );
