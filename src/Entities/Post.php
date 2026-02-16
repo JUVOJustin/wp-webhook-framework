@@ -25,14 +25,18 @@ class Post extends Entity_Handler {
 		$post_type = get_post_type( $post_id );
 		$payload   = array( 'post_type' => $post_type );
 
-		// Add REST API URL if post type has REST support enabled
-		if ( false !== $post_type ) {
-			$post_type_object = get_post_type_object( $post_type );
-			if ( $post_type_object && $post_type_object->show_in_rest && $post_type_object->rest_base ) {
-				$rest_namespace = $post_type_object->rest_namespace ?: 'wp/v2';
-				$payload['rest_url'] = rest_url( "{$rest_namespace}/{$post_type_object->rest_base}/{$post_id}" );
-			}
+		if ( false === $post_type ) {
+			return $payload;
 		}
+
+		$post_type_object = get_post_type_object( $post_type );
+		if ( ! $post_type_object || ! $post_type_object->show_in_rest ) {
+			return $payload;
+		}
+
+		$rest_base      = $post_type_object->rest_base ?: $post_type;
+		$rest_namespace = $post_type_object->rest_namespace ?: 'wp/v2';
+		$payload['rest_url'] = rest_url( "{$rest_namespace}/{$rest_base}/{$post_id}" );
 
 		return $payload;
 	}

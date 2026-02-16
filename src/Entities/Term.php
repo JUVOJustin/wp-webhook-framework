@@ -33,12 +33,14 @@ class Term extends Entity_Handler {
 		$taxonomy = $term->taxonomy;
 		$payload  = array( 'taxonomy' => $taxonomy );
 
-		// Add REST API URL if taxonomy has REST support enabled
 		$taxonomy_object = get_taxonomy( $taxonomy );
-		if ( $taxonomy_object && $taxonomy_object->show_in_rest && $taxonomy_object->rest_base ) {
-			$rest_namespace      = $taxonomy_object->rest_namespace ?: 'wp/v2';
-			$payload['rest_url'] = rest_url( "{$rest_namespace}/{$taxonomy_object->rest_base}/{$term_id}" );
+		if ( ! $taxonomy_object || ! $taxonomy_object->show_in_rest ) {
+			return $payload;
 		}
+
+		$rest_base      = $taxonomy_object->rest_base ?: $taxonomy;
+		$rest_namespace = $taxonomy_object->rest_namespace ?: 'wp/v2';
+		$payload['rest_url'] = rest_url( "{$rest_namespace}/{$rest_base}/{$term_id}" );
 
 		return $payload;
 	}
