@@ -85,8 +85,16 @@ class Service_Provider {
 			6
 		);
 
-		$instance->register_webhooks();
-		$instance->register_available_notifications();
+		// Defer webhook and notification registration until 'init' to avoid race conditions.
+		// This allows other plugins to hook into 'wpwf_register_webhooks' and
+		// 'wpwf_register_notifications' actions before they are fired.
+		add_action(
+			'init',
+			function () use ( $instance ) {
+				$instance->register_webhooks();
+				$instance->register_available_notifications();
+			}
+		);
 	}
 
 	/**
@@ -94,8 +102,8 @@ class Service_Provider {
 	 *
 	 * No webhooks are registered by default. Consumers choose which
 	 * webhooks to register via the `wpwf_register_webhooks` action.
-	 * Each call to `Webhook_Registry::register()` immediately calls
-	 * `init()` on the webhook, so hooks are active right away.
+	 * Each call to `Webhook_Registry::register()` calls `init()` on the
+	 * webhook, activating its hooks during the WordPress 'init' action.
 	 */
 	private function register_webhooks(): void {
 		/**
