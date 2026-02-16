@@ -113,6 +113,50 @@ add_filter( 'wpwf_payload', function ( array $payload, string $entity, int|strin
 }, 10, 3 );
 ```
 
+### `wpwf_request_body`
+
+Filter the webhook request body right before sending.
+
+The framework already enriches `rest_url` at delivery time when possible. Use this filter to override or append additional fields.
+
+**Parameters:**
+- `$body` (array<string,mixed>) - The full webhook body
+- `$action` (string) - The action type
+- `$entity` (string) - The entity type (post, term, user, meta)
+- `$id` (int|string) - The entity ID
+- `$payload` (array<string,mixed>) - The scheduled payload data
+- `$webhook` (`Webhook`) - The webhook instance
+
+**Returns:** array<string,mixed>
+
+```php
+add_filter( 'wpwf_request_body', function ( array $body, string $action, string $entity, int|string $id ): array {
+    if ( isset( $body['rest_url'] ) ) {
+        return $body;
+    }
+
+    if ( 'post' !== $entity ) {
+        return $body;
+    }
+
+    $post_type = get_post_type( (int) $id );
+    if ( false === $post_type || '' === $post_type ) {
+        return $body;
+    }
+
+    $post_type_object = get_post_type_object( $post_type );
+    if ( ! $post_type_object || true !== $post_type_object->show_in_rest ) {
+        return $body;
+    }
+
+    $rest_base      = $post_type_object->rest_base ?: $post_type;
+    $rest_namespace = $post_type_object->rest_namespace ?: 'wp/v2';
+    $body['rest_url'] = rest_url( "{$rest_namespace}/{$rest_base}/{$id}" );
+
+    return $body;
+}, 10, 4 );
+```
+
 ### `wpwf_url`
 
 Filter the webhook URL before scheduling.
@@ -279,11 +323,15 @@ Standard payload sent with all webhooks:
 - **User**: `roles` (array)
 - **Meta**: `acf_field_key`, `acf_field_name` (if ACF field)
 
+**Derived fields (when available at send time):**
+- `rest_url`
+
 ## Filter Priority
 
 Filters are applied in this order:
 
 1. `wpwf_payload` - Modify or prevent payload
 2. `wpwf_url` - Customize webhook URL
-3. `wpwf_headers` - Customize HTTP headers
-4. `wpwf_excluded_meta` - Filter meta keys (meta webhooks only)
+3. `wpwf_request_body` - Modify final request body before send
+4. `wpwf_headers` - Customize HTTP headers
+5. `wpwf_excluded_meta` - Filter meta keys (meta webhooks only)
