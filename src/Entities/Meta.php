@@ -102,20 +102,13 @@ class Meta extends Entity_Handler {
 	 * @param string $meta_type The meta type (post, term, user).
 	 * @param int    $object_id The object ID.
 	 * @param string $meta_key  The meta key.
-	 * @return array<string,mixed> The prepared payload data with meta_key included.
+	 * @return array<string,mixed> The prepared payload data with meta_type and meta_key included.
 	 */
 	public function prepare_payload( string $meta_type, int $object_id, string $meta_key ): array {
-		$base_payload = match ( $meta_type ) {
-			'post' => $this->post_handler->prepare_payload( $object_id ),
-			'term' => $this->term_handler->prepare_payload( $object_id ),
-			'user' => $this->user_handler->prepare_payload( $object_id ),
-			default => array(),
-		};
-
-		return array_merge(
-			$base_payload,
+		return array(
+			'meta_type' => $meta_type,
 			// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Not a database query, just webhook payload data
-			array( 'meta_key' => $meta_key )
+			'meta_key'  => $meta_key,
 		);
 	}
 
@@ -127,21 +120,30 @@ class Meta extends Entity_Handler {
 	 * @return array<string,mixed> The updated payload data.
 	 */
 	public function prepare_delivery_payload( int $entity_id, array $payload ): array {
-		if ( ! empty( $payload['rest_url'] ) ) {
-			return $payload;
+		$meta_type = $payload['meta_type'] ?? '';
+		if ( is_string( $meta_type ) && '' !== $meta_type ) {
+			return match ( $meta_type ) {
+				'post' => $this->post_handler->prepare_delivery_payload( $entity_id, $payload ),
+				'term' => $this->term_handler->prepare_delivery_payload( $entity_id, $payload ),
+				'user' => $this->user_handler->prepare_delivery_payload( $entity_id, $payload ),
+				default => $payload,
+			};
 		}
 
 		$post_type = $payload['post_type'] ?? '';
 		if ( is_string( $post_type ) && '' !== $post_type ) {
+			$payload['meta_type'] = 'post';
 			return $this->post_handler->prepare_delivery_payload( $entity_id, $payload );
 		}
 
 		$taxonomy = $payload['taxonomy'] ?? '';
 		if ( is_string( $taxonomy ) && '' !== $taxonomy ) {
+			$payload['meta_type'] = 'term';
 			return $this->term_handler->prepare_delivery_payload( $entity_id, $payload );
 		}
 
 		if ( array_key_exists( 'roles', $payload ) ) {
+			$payload['meta_type'] = 'user';
 			return $this->user_handler->prepare_delivery_payload( $entity_id, $payload );
 		}
 
