@@ -120,6 +120,35 @@ class Meta extends Entity_Handler {
 	}
 
 	/**
+	 * Enrich payload data at delivery time.
+	 *
+	 * @param int                 $entity_id The object ID.
+	 * @param array<string,mixed> $payload   The scheduled payload data.
+	 * @return array<string,mixed> The updated payload data.
+	 */
+	public function prepare_delivery_payload( int $entity_id, array $payload ): array {
+		if ( ! empty( $payload['rest_url'] ) ) {
+			return $payload;
+		}
+
+		$post_type = $payload['post_type'] ?? '';
+		if ( is_string( $post_type ) && '' !== $post_type ) {
+			return $this->post_handler->prepare_delivery_payload( $entity_id, $payload );
+		}
+
+		$taxonomy = $payload['taxonomy'] ?? '';
+		if ( is_string( $taxonomy ) && '' !== $taxonomy ) {
+			return $this->term_handler->prepare_delivery_payload( $entity_id, $payload );
+		}
+
+		if ( array_key_exists( 'roles', $payload ) ) {
+			return $this->user_handler->prepare_delivery_payload( $entity_id, $payload );
+		}
+
+		return $payload;
+	}
+
+	/**
 	 * Get the entity payload (without meta_key) for triggering parent entity updates.
 	 *
 	 * @param string $meta_type The meta type (post, term, user).

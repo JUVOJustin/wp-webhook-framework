@@ -8,6 +8,11 @@
 namespace juvo\WP_Webhook_Framework;
 
 use ActionScheduler_Store;
+use juvo\WP_Webhook_Framework\Entities\Entity_Handler;
+use juvo\WP_Webhook_Framework\Entities\Meta;
+use juvo\WP_Webhook_Framework\Entities\Post;
+use juvo\WP_Webhook_Framework\Entities\Term;
+use juvo\WP_Webhook_Framework\Entities\User;
 use WP_Exception;
 
 /**
@@ -119,6 +124,8 @@ class Dispatcher {
 			throw new WP_Exception( 'Webhook not found in registry.' );
 		}
 
+		$payload = $this->prepare_delivery_payload( $entity, $id, $payload );
+
 		$body = array_merge(
 			$payload,
 			array(
@@ -127,6 +134,18 @@ class Dispatcher {
 				'id'     => $id,
 			)
 		);
+
+		/**
+		 * Filter the webhook request body before sending.
+		 *
+		 * @param array<string,mixed> $body    The full webhook body.
+		 * @param string              $action  The action type.
+		 * @param string              $entity  The entity type.
+		 * @param int|string          $id      The entity ID.
+		 * @param array<string,mixed> $payload The scheduled payload data.
+		 * @param Webhook             $webhook The webhook instance.
+		 */
+		$body = apply_filters( 'wpwf_request_body', $body, $action, $entity, $id, $payload, $webhook );
 
 		if ( ! isset( $headers['Content-Type'] ) ) {
 			$headers['Content-Type'] = 'application/json';
@@ -154,6 +173,63 @@ class Dispatcher {
 
 			do_action( 'wpwf_webhook_success', $url, $body, $response, $webhook );
 		}
+	}
+
+	/**
+	 * Prepare the payload for delivery-time enrichment.
+	 *
+	 * @param string              $entity  The entity type.
+	 * @param int|string          $id      The entity ID.
+	 * @param array<string,mixed> $payload The payload data.
+	 * @return array<string,mixed> The updated payload data.
+	 */
+	private function prepare_delivery_payload( string $entity, int|string $id, array $payload ): array {
+		$entity_id = $this->normalize_int_id( $id );
+		if ( null === $entity_id ) {
+			return $payload;
+		}
+
+		$handler = $this->get_entity_handler( $entity );
+		if ( null === $handler ) {
+			return $payload;
+		}
+
+		return $handler->prepare_delivery_payload( $entity_id, $payload );
+	}
+
+	/**
+	 * Resolve the entity handler for delivery-time enrichment.
+	 *
+	 * @param string $entity The entity type.
+	 * @return Entity_Handler|null The handler instance when available.
+	 */
+	private function get_entity_handler( string $entity ): ?Entity_Handler {
+		return match ( $entity ) {
+			'post' => new Post(),
+			'term' => new Term(),
+			'user' => new User(),
+			'meta' => new Meta(),
+			default => null,
+		};
+	}
+
+	/**
+	 * Normalize a mixed ID to a positive integer.
+	 *
+	 * @param int|string $id The entity ID.
+	 * @return int|null The normalized integer ID, or null when invalid.
+	 */
+	private function normalize_int_id( int|string $id ): ?int {
+		if ( is_int( $id ) ) {
+			return 1 > $id ? null : $id;
+		}
+
+		if ( '' === $id || ! ctype_digit( $id ) ) {
+			return null;
+		}
+
+		$parsed_id = (int) $id;
+		return 1 > $parsed_id ? null : $parsed_id;
 	}
 
 	/**

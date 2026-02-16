@@ -14,6 +14,7 @@ Entity-level webhooks for WordPress using Action Scheduler. Sends non-blocking P
 - **Action Scheduler dispatch** - 5s delay, non-blocking async delivery
 - **Automatic deduplication** - Dispatcher-level on action+entity+id and meta-level per-request dedup for plugin hooks (ACF, Meta Box, etc.)
 - **Entity-aware payloads** - Includes post_type, taxonomy, or roles
+- **Send-time enrichment** - Adds derived REST URLs when available
 - **ACF integration** - Adds field key/name context to meta changes
 - **Registry pattern** - Extensible webhook system with custom configurations
 - **Notification system** - Opt-in email alerts for failures, extensible notification handlers
@@ -87,7 +88,7 @@ See [Hooks and Filters](./docs/hooks-and-filters.mdx) for all available hooks an
 
 **Data Flow:**
 ```
-WordPress hook → Webhook → Handler::prepare_payload() → Webhook::emit() → Dispatcher → Action Scheduler → HTTP POST
+WordPress hook → Webhook → Handler::prepare_payload() → Webhook::emit() → Dispatcher → Action Scheduler → Dispatcher::process_scheduled_webhook() → Handler::prepare_delivery_payload() → HTTP POST
 ```
 
 ### Webhook Statefulness
@@ -114,6 +115,9 @@ Example webhook payload:
 - Term: `taxonomy`
 - User: `roles[]`
 - Meta: `acf_field_key`, `acf_field_name` (if ACF field)
+
+**Derived fields (when available at send time):**
+- `rest_url`
 
 ## Failure Monitoring
 
