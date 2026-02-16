@@ -45,7 +45,7 @@ class Term extends Entity_Handler {
 			$taxonomy = $term->taxonomy;
 		}
 
-		if ( ! is_string( $taxonomy ) || '' === $taxonomy ) {
+		if ( '' === $taxonomy ) {
 			return $payload;
 		}
 
