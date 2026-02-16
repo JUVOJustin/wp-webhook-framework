@@ -19,18 +19,13 @@ class Term extends Entity_Handler {
 	/**
 	 * Prepare payload for a term.
 	 *
+	 * Persists minimal event context for async delivery.
+	 *
 	 * @param int $term_id The term ID.
-	 * @return array<string,mixed> The prepared payload data containing taxonomy.
+	 * @return array<string,mixed> The prepared payload data.
 	 */
 	public function prepare_payload( int $term_id ): array {
-		$term = get_term( $term_id );
-
-		// Return empty payload if term is not found.
-		if ( ! is_a( $term, WP_Term::class ) ) {
-			return array();
-		}
-
-		return array( 'taxonomy' => $term->taxonomy );
+		return array();
 	}
 
 	/**
@@ -41,10 +36,6 @@ class Term extends Entity_Handler {
 	 * @return array<string,mixed> The updated payload data.
 	 */
 	public function prepare_delivery_payload( int $entity_id, array $payload ): array {
-		if ( ! empty( $payload['rest_url'] ) ) {
-			return $payload;
-		}
-
 		$taxonomy = $payload['taxonomy'] ?? '';
 		if ( ! is_string( $taxonomy ) || '' === $taxonomy ) {
 			$term = get_term( $entity_id );
@@ -52,6 +43,16 @@ class Term extends Entity_Handler {
 				return $payload;
 			}
 			$taxonomy = $term->taxonomy;
+		}
+
+		if ( '' === $taxonomy ) {
+			return $payload;
+		}
+
+		$payload['taxonomy'] = $taxonomy;
+
+		if ( ! empty( $payload['rest_url'] ) ) {
+			return $payload;
 		}
 
 		$taxonomy_object = get_taxonomy( $taxonomy );

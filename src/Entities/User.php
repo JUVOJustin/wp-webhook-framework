@@ -7,6 +7,8 @@
 
 namespace juvo\WP_Webhook_Framework\Entities;
 
+use WP_User;
+
 /**
  * User entity handler.
  *
@@ -17,14 +19,13 @@ class User extends Entity_Handler {
 	/**
 	 * Prepare payload for a user.
 	 *
+	 * Persists minimal event context for async delivery.
+	 *
 	 * @param int $user_id The user ID.
-	 * @return array<string,mixed> The prepared payload data containing user roles.
+	 * @return array<string,mixed> The prepared payload data.
 	 */
 	public function prepare_payload( int $user_id ): array {
-		$user  = get_userdata( $user_id );
-		$roles = ( $user && $user->roles ) ? array_values( $user->roles ) : array();
-
-		return array( 'roles' => $roles );
+		return array();
 	}
 
 	/**
@@ -35,11 +36,17 @@ class User extends Entity_Handler {
 	 * @return array<string,mixed> The updated payload data.
 	 */
 	public function prepare_delivery_payload( int $entity_id, array $payload ): array {
-		if ( ! empty( $payload['rest_url'] ) ) {
-			return $payload;
+		$roles = $payload['roles'] ?? null;
+		if ( ! is_array( $roles ) ) {
+			$user = get_userdata( $entity_id );
+			if ( $user instanceof WP_User ) {
+				$payload['roles'] = $user->roles ? array_values( $user->roles ) : array();
+			}
 		}
 
-		$payload['rest_url'] = rest_url( "wp/v2/users/{$entity_id}" );
+		if ( empty( $payload['rest_url'] ) ) {
+			$payload['rest_url'] = rest_url( "wp/v2/users/{$entity_id}" );
+		}
 		return $payload;
 	}
 }
