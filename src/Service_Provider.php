@@ -27,6 +27,13 @@ class Service_Provider {
 	private static ?Service_Provider $instance = null;
 
 	/**
+	 * Registration state flag.
+	 *
+	 * @var bool
+	 */
+	private static bool $registered = false;
+
+	/**
 	 * The webhook dispatcher instance.
 	 *
 	 * @var Dispatcher
@@ -76,6 +83,11 @@ class Service_Provider {
 	 */
 	public static function register(): void {
 
+		// Guard against duplicate registration
+		if ( self::$registered ) {
+			return;
+		}
+
 		$instance = self::get_instance();
 
 		add_action(
@@ -88,13 +100,9 @@ class Service_Provider {
 		// Defer webhook and notification registration until 'init' to avoid race conditions.
 		// This allows other plugins to hook into 'wpwf_register_webhooks' and
 		// 'wpwf_register_notifications' actions before they are fired.
-		add_action(
-			'init',
-			function () use ( $instance ) {
-				$instance->register_webhooks();
-				$instance->register_available_notifications();
-			}
-		);
+		add_action( 'init', array( $instance, 'on_init' ) );
+
+		self::$registered = true;
 	}
 
 	/**
@@ -112,6 +120,16 @@ class Service_Provider {
 		 * @param Webhook_Registry $registry The webhook registry instance.
 		 */
 		do_action( 'wpwf_register_webhooks', $this->registry );
+	}
+
+	/**
+	 * Handle the WordPress 'init' action.
+	 *
+	 * Registers webhooks and notification handlers during WordPress initialization.
+	 */
+	public function on_init(): void {
+		$this->register_webhooks();
+		$this->register_available_notifications();
 	}
 
 	/**
