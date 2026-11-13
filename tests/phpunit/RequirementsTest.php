@@ -95,10 +95,10 @@ final class RequirementsTest extends WP_UnitTestCase {
 	 */
 	public static function unsupported_versions(): array {
 		return array(
-			'6.6.2'  => array( '6.6.2' ),
-			'6.6'    => array( '6.6' ),
-			'6.5.5'  => array( '6.5.5' ),
-			'5.9'    => array( '5.9' ),
+			'6.6.2' => array( '6.6.2' ),
+			'6.6'   => array( '6.6' ),
+			'6.5.5' => array( '6.5.5' ),
+			'5.9'   => array( '5.9' ),
 		);
 	}
 
@@ -109,10 +109,10 @@ final class RequirementsTest extends WP_UnitTestCase {
 	 */
 	public static function supported_versions(): array {
 		return array(
-			'6.7'    => array( '6.7' ),
-			'6.7.1'  => array( '6.7.1' ),
-			'6.8'    => array( '6.8' ),
-			'7.0.2'  => array( '7.0.2' ),
+			'6.7'   => array( '6.7' ),
+			'6.7.1' => array( '6.7.1' ),
+			'6.8'   => array( '6.8' ),
+			'7.0.2' => array( '7.0.2' ),
 		);
 	}
 

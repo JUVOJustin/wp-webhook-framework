@@ -37,8 +37,8 @@ final class MultiPluginWebhookTest extends WPWF_Webhook_Test_Case {
 
 		$this->run_scheduled_webhooks();
 
-		$requests       = $this->get_captured_requests();
-		$webhook_names  = array_column( $requests, 'webhook_name' );
+		$requests      = $this->get_captured_requests();
+		$webhook_names = array_column( $requests, 'webhook_name' );
 		sort( $webhook_names );
 
 		$this->assertSame( array( 'post', 'post_secondary' ), $webhook_names );

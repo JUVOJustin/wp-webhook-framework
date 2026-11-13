@@ -35,7 +35,7 @@ Service_Provider::register();
 function receiver_base_url(): string {
 	$base_url = getenv( 'WPWF_TEST_RECEIVER_BASE_URL' );
 	if ( ! is_string( $base_url ) || '' === $base_url ) {
-		$base_url = 'http://wordpress';
+		$base_url = 'http://tests-wordpress';
 	}
 
 	return \untrailingslashit( $base_url );

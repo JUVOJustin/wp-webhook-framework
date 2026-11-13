@@ -29,7 +29,7 @@ final class WebhookFailureHandlingTest extends WPWF_Webhook_Test_Case {
 			99
 		);
 
-		$retry_base_filter = static function ( int $base_time, string $webhook_name, int $retry_count ) use ( $webhook ): int {
+		$retry_base_filter = static function ( int $base_time, string $webhook_name ) use ( $webhook ): int {
 			if ( $webhook->get_name() !== $webhook_name ) {
 				return $base_time;
 			}
@@ -122,7 +122,7 @@ final class WebhookFailureHandlingTest extends WPWF_Webhook_Test_Case {
 			99
 		);
 
-		$retry_base_filter = static function ( int $base_time, string $webhook_name, int $retry_count ) use ( $webhook ): int {
+		$retry_base_filter = static function ( int $base_time, string $webhook_name ) use ( $webhook ): int {
 			if ( $webhook->get_name() !== $webhook_name ) {
 				return $base_time;
 			}
@@ -155,6 +155,31 @@ final class WebhookFailureHandlingTest extends WPWF_Webhook_Test_Case {
 	}
 
 	/**
+	 * A rejected retry must still update blocking state and notify failure observers.
+	 */
+	public function test_rejected_retry_still_records_delivery_failure(): void {
+		$webhook = $this->register_failure_webhook(
+			'rejected-retry',
+			$this->get_receiver_webhook_url( 'rejected-retry', 'fail' ),
+			Delivery_Mode::SCHEDULED,
+			1,
+			99
+		);
+		$webhook->trigger_event( 'rejected-retry' );
+		$actions = $this->get_scheduled_actions_by_webhook_name( $webhook->get_name() );
+		$filter  = static fn(): int => 0;
+		add_filter( 'pre_as_schedule_single_action', $filter );
+		try {
+			ActionScheduler_QueueRunner::instance()->process_action( (int) $actions[0]['action_id'], 'wpwf-test' );
+		} finally {
+			remove_filter( 'pre_as_schedule_single_action', $filter );
+		}
+		$this->assertSame( ActionScheduler_Store::STATUS_FAILED, ActionScheduler::store()->get_status( (int) $actions[0]['action_id'] ) );
+		$this->assertSame( 1, Failure::from_transient( $webhook->get_webhook_url() )->get_count() );
+		$this->assertCount( 0, $this->get_scheduled_actions_by_webhook_name( $webhook->get_name() ) );
+	}
+
+	/**
 	 * Register a failure scenario webhook with unique state and URL.
 	 *
 	 * @param string        $suffix                  Unique test suffix.
@@ -182,6 +207,7 @@ final class WebhookFailureHandlingTest extends WPWF_Webhook_Test_Case {
 	 * @param callable $callback The callback to execute.
 	 */
 	private function run_ignoring_emit_warning( callable $callback ): void {
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_set_error_handler -- Tests assert the documented warning path.
 		set_error_handler(
 			static function ( int $error_level, string $message ): bool {
 				if ( E_USER_WARNING !== $error_level ) {

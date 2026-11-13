@@ -1,0 +1,59 @@
+name: Dependabot / Patch merge
+
+on:
+  workflow_run:
+    workflows: [Quality Check, Integration Tests, Dependabot / Classify]
+    types: [completed]
+  # External checks/statuses may finish after the GitHub Actions workflows.
+  check_run:
+    types: [completed]
+  status:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependabot-patch-merge
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read
+      actions: read
+      statuses: read
+    steps:
+      # This privileged workflow never checks out or executes PR-controlled code.
+      - name: Merge verified patch commits after all checks pass
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const prs = await github.paginate(github.rest.pulls.list, { owner, repo, state: 'open', per_page: 100 });
+            for (const pr of prs) {
+              if (pr.draft || pr.user.login !== 'dependabot[bot]' || pr.head.repo?.full_name !== `${owner}/${repo}`) continue;
+              const sha = pr.head.sha;
+              const { data: statuses } = await github.rest.repos.getCombinedStatusForRef({ owner, repo, ref: sha, per_page: 100 });
+              if (statuses.total_count !== statuses.statuses.length ||
+                  !statuses.statuses.every(status => status.state === 'success') ||
+                  !statuses.statuses.some(status => status.context === 'Dependabot patch eligibility' &&
+                    status.description === 'Verified patch update' && status.creator.login === 'github-actions[bot]')) continue;
+              const runs = await Promise.all(['quality-check.yml', 'integration-tests.yml'].map(async workflow_id => {
+                const { data } = await github.rest.actions.listWorkflowRuns({
+                  owner, repo, workflow_id, event: 'pull_request', head_sha: sha, per_page: 100
+                });
+                return data.workflow_runs[0];
+              }));
+              if (!runs.every(run => run?.status === 'completed' && run.conclusion === 'success')) continue;
+              const checks = await github.paginate(github.rest.checks.listForRef, {
+                owner, repo, ref: sha, filter: 'latest', per_page: 100
+              });
+              if (!checks.length || !checks.every(check => check.status === 'completed' && check.conclusion === 'success')) continue;
+              // A push after validation causes GitHub to reject this exact-head merge.
+              const result = await github.rest.pulls.merge({ owner, repo, pull_number: pr.number, sha, merge_method: 'squash' });
+              if (!result.data.merged) core.setFailed(result.data.message);
+            }

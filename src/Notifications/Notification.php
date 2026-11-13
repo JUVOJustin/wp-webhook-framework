@@ -67,7 +67,7 @@ abstract class Notification {
 	/**
 	 * Handle webhook failure notification.
 	 *
-	 * Triggered when a webhook fails after all retries are exhausted.
+	 * Triggered for each failed delivery attempt, including retries.
 	 *
 	 * @param string                        $url           The webhook URL.
 	 * @param \WP_Error|array<string,mixed> $response      The response from wp_remote_post.

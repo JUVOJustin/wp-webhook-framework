@@ -2,47 +2,93 @@ name: Integration Tests
 
 on:
   push:
+    branches: [main]
   pull_request:
     branches:
       - main
 
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   application-tests:
-    name: wp-env Application Tests (WP ${{ matrix.wordpress.name }})
+    name: wp-env Application Tests (${{ matrix.target.name }})
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     strategy:
       fail-fast: false
       matrix:
-        wordpress:
+        target:
           # Minimum supported release. WP_Exception landed in core in 6.7.0, and
           # the dispatcher throws it on every failure path, so this job proves the
           # documented floor still boots.
           - name: '6.7 (minimum)'
             core: 'WordPress/WordPress#6.7'
+            legacy: true
+          - name: 'WP 6.9 / AS 4.2.0'
+            core: 'WordPress/WordPress#6.9'
+            legacy: false
           # Latest release, resolved by wp-env when core is unset.
           - name: 'latest'
             core: ''
+            legacy: false
 
     env:
-      WP_ENV_CORE: ${{ matrix.wordpress.core }}
+      WP_ENV_CORE: ${{ matrix.target.core }}
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
-          cache: npm
 
       - name: Install Node dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
+
+      - name: Test dependency merge policy
+        run: pnpm run test:ci
+
+      - name: Start WordPress and install locked dependencies
+        run: |
+          pnpm run wp-env:start
+          pnpm run composer:install
+
+      - name: Install the locked legacy scheduler fixture
+        if: ${{ matrix.target.legacy }}
+        run: |
+          pnpm exec wp-env run cli --env-cwd=wp-content/wpwf-framework/tests/fixtures/action-scheduler-3.9 composer install --no-interaction --prefer-dist --no-progress
+          pnpm exec wp-env run cli --env-cwd=wp-content/wpwf-framework sh -c 'rm -rf vendor/woocommerce/action-scheduler && cp -R tests/fixtures/action-scheduler-3.9/vendor/woocommerce/action-scheduler vendor/woocommerce/action-scheduler'
 
       - name: Run wp-env application tests
-        run: npm run test:integration
+        run: |
+          pnpm run test:phpunit
+          pnpm run test:concurrency
 
       - name: Stop wp-env
         if: ${{ always() }}
-        run: npm run wp-env:stop
+        run: pnpm run wp-env:stop
+
+  ci:
+    name: CI
+    if: ${{ always() }}
+    needs: application-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require all compatibility tests
+        env:
+          RESULT: ${{ needs.application-tests.result }}
+        run: test "$RESULT" = success

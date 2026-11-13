@@ -15,6 +15,7 @@ Configure individual webhooks using chainable methods.
 |--------|-------------|---------|
 | `webhook_url(string)` | Custom endpoint URL | None |
 | `delivery_mode(Delivery_Mode)` | Delivery strategy (`SCHEDULED` or `IMMEDIATE`) | `Delivery_Mode::SCHEDULED` |
+| `coalesce_updates(bool)` | Retain only the latest pending scheduled update | `true` |
 | `max_consecutive_failures(int)` | Failures before blocking (0 disables) | 10 |
 | `max_retries(int)` | Retry attempts per failed event | 0 |
 | `timeout(int)` | HTTP timeout in seconds (1-300) | 30 |
@@ -27,7 +28,7 @@ The base `Webhook` class supports two delivery modes through `delivery_mode()` a
 
 | Enum case | Behavior | Default |
 |----------|----------|---------|
-| `Delivery_Mode::SCHEDULED` | Queue delivery in Action Scheduler with deduplication | **Yes** |
+| `Delivery_Mode::SCHEDULED` | Queue delivery in Action Scheduler; coalesce updates by default | **Yes** |
 | `Delivery_Mode::IMMEDIATE` | Send first attempt in the current request | No |
 
 ```php
@@ -66,8 +67,9 @@ if ( $meta_webhook instanceof Meta_Webhook ) {
 }
 ```
 
-In `Meta_Emission_Mode::ENTITY` mode the Dispatcher deduplicates on `(url, action, entity, id)`,
-so rapid meta changes on the same post collapse into a single delivery.
+In `Meta_Emission_Mode::ENTITY` mode, rapid meta changes for the same parent
+entity and webhook collapse into a latest-state update. See
+[Update Notifications](./update-coalescing.mdx) for identity and payload semantics.
 
 ### Chainable Configuration
 
@@ -150,7 +152,8 @@ add_action( 'wpwf_register_webhooks', function ( Webhook_Registry $registry ): v
 ## Multiple Endpoints for the Same Entity
 
 Register additional webhook instances instead of modifying the built-in ones.
-Each instance has its own URL, retry policy, timeout, and failure tracking:
+Each instance has its own URL, retry policy and timeout. Failure counters are shared
+by destination URL:
 
 ```php
 add_action( 'wpwf_register_webhooks', function ( Webhook_Registry $registry ): void {
@@ -171,7 +174,8 @@ add_action( 'wpwf_register_webhooks', function ( Webhook_Registry $registry ): v
 ```
 
 Each instance registers its own WordPress hooks and dispatches independently.
-This keeps configuration, failure tracking, and retry logic fully isolated.
+Configuration and retry policies stay separate; instances targeting the same URL
+share its failure counter and blocked status.
 
 ## Configuration Priority
 
@@ -231,3 +235,28 @@ add_filter( 'wpwf_payload', function ( array $payload, string $entity, int|strin
     return $payload;
 }, 10, 3 );
 ```
+
+## Scheduler requirements and payload limits
+
+Action Scheduler 4.2 requires WordPress 6.9 or newer. WordPress 6.7–6.8
+consumers must constrain the scheduler to `^3.7` in their root Composer manifest.
+The framework accepts `^3.7 || ^4.2`; future major versions are not implicitly
+supported. Register the provider while the plugin loads and emit queued events
+after Action Scheduler initializes at `init` priority 1.
+
+For individually queued events, the default scheduler store limits complete
+JSON-encoded arguments to 8,000 characters, including URL, payload and headers.
+Coalesced updates persist their content separately; only a fixed-size identity
+key goes into scheduler arguments. Prefer identifiers and retrieval URLs over
+large embedded documents in either mode.
+
+An enqueue rejected by the scheduler throws `WP_Exception` with
+`webhook_schedule_failed`; `emit()` reports it through its existing warning path.
+Persisted update content remains available to recovery. A rejected ordinary retry
+still records the original delivery failure and fires the failure hooks.
+
+Action Scheduler 4.2 compares complete `(hook, args, group)` values for native
+unique actions, including argument types and order. It does not offer a selected
+subset of payload fields as a unique key. The framework therefore keeps mutable
+content outside scheduler args. See [Update Notifications](./update-coalescing.mdx)
+for persistence, locking requirements and compatibility with older scheduler stores.

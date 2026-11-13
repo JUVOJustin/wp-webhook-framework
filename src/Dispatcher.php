@@ -9,7 +9,6 @@ declare(strict_types=1);
 
 namespace juvo\WP_Webhook_Framework;
 
-use ActionScheduler_Store;
 use juvo\WP_Webhook_Framework\Entities\Entity_Handler;
 use juvo\WP_Webhook_Framework\Entities\Meta;
 use juvo\WP_Webhook_Framework\Entities\Post;
@@ -20,12 +19,12 @@ use WP_Exception;
 /**
  * Queues and sends webhooks with scheduled and immediate modes.
  *
- * Scheduled mode deduplicates by action+entity+id while pending.
+ * Scheduled updates coalesce by destination, webhook and entity identity.
  */
 class Dispatcher {
 
 	/**
-	 * Schedule a webhook if not already pending with same (action, entity, id).
+	 * Queue events individually; update notifications retain only the latest pending hints.
 	 *
 	 * @param string              $action        The action type.
 	 * @param string              $entity        The entity type.
@@ -47,29 +46,15 @@ class Dispatcher {
 		$url     = $dispatch_data['url'];
 		$payload = $dispatch_data['payload'];
 
-		$group = sanitize_title( 'wpwf-' . $entity );
-
-		$query = as_get_scheduled_actions(
-			array(
-				'per_page'              => 1,
-				'hook'                  => 'wpwf_send_webhook',
-				'group'                 => $group,
-				'status'                => ActionScheduler_Store::STATUS_PENDING,
-				'args'                  => array(
-					'url'    => $url,
-					'action' => $action,
-					'entity' => $entity,
-					'id'     => $id,
-				),
-				'partial_args_matching' => 'json',
-			)
-		);
-
-		if ( ! empty( $query ) ) {
+		$webhook = Webhook_Registry::instance()->get( (string) ( $headers['wpwf-webhook-name'] ?? '' ) );
+		if ( 'update' === $action && ( null === $webhook || $webhook->get_coalesce_updates() ) ) {
+			$this->get_update_queue()->schedule( $url, $entity, $id, $payload, $headers );
 			return;
 		}
 
-		as_schedule_single_action(
+		$group = sanitize_title( 'wpwf-' . $entity );
+
+		$action_id = as_schedule_single_action(
 			time() + 5,
 			'wpwf_send_webhook',
 			array(
@@ -82,6 +67,19 @@ class Dispatcher {
 			),
 			$group
 		);
+
+		if ( 0 === $action_id ) {
+			throw new WP_Exception( 'webhook_schedule_failed' );
+		}
+	}
+
+	/**
+	 * Keep coalescing state outside the scheduler's immutable argument arrays.
+	 *
+	 * @return Update_Queue
+	 */
+	public function get_update_queue(): Update_Queue {
+		return new Update_Queue( $this );
 	}
 
 	/**
@@ -121,10 +119,10 @@ class Dispatcher {
 	/**
 	 * Ensure Action Scheduler APIs required for queued actions are available.
 	 *
-	 * @throws WP_Exception If Action Scheduler functions are not loaded.
+	 * @throws WP_Exception If Action Scheduler is missing or its store is not ready.
 	 */
 	private function ensure_action_scheduler_available(): void {
-		if ( ! function_exists( 'as_schedule_single_action' ) || ! function_exists( 'as_get_scheduled_actions' ) ) {
+		if ( ! function_exists( 'as_schedule_single_action' ) || ! function_exists( 'as_get_scheduled_actions' ) || ! \ActionScheduler::is_initialized() ) {
 			throw new WP_Exception( 'action_scheduler_not_active' );
 		}
 	}
@@ -182,13 +180,14 @@ class Dispatcher {
 	 * @param int|string          $id           The entity ID.
 	 * @param array<string,mixed> $payload      The payload data.
 	 * @param array<string,mixed> $headers      The HTTP headers.
+	 * @param bool                $schedule_retries Whether to queue payload retries; coalesced updates manage revisions themselves.
 	 *
 	 * @throws WP_Exception If URL is blocked or webhook is not found.
 	 */
-	public function process_scheduled_webhook( string $url, string $action, string $entity, int|string $id, array $payload, array $headers ): void {
+	public function process_scheduled_webhook( string $url, string $action, string $entity, int|string $id, array $payload, array $headers, bool $schedule_retries = true ): void {
 		$webhook = $this->get_webhook_from_headers( $headers );
 
-		$this->send_webhook_request( $url, $action, $entity, $id, $payload, $headers, $webhook );
+		$this->send_webhook_request( $url, $action, $entity, $id, $payload, $headers, $webhook, $schedule_retries );
 	}
 
 	/**
@@ -221,10 +220,11 @@ class Dispatcher {
 	 * @param array<string,mixed> $payload The payload data.
 	 * @param array<string,mixed> $headers The HTTP headers.
 	 * @param Webhook             $webhook The webhook configuration instance.
+	 * @param bool                $schedule_retries Whether this path owns retry scheduling.
 	 *
 	 * @throws WP_Exception If delivery fails.
 	 */
-	private function send_webhook_request( string $url, string $action, string $entity, int|string $id, array $payload, array $headers, Webhook $webhook ): void {
+	private function send_webhook_request( string $url, string $action, string $entity, int|string $id, array $payload, array $headers, Webhook $webhook, bool $schedule_retries = true ): void {
 		if ( $this->is_url_blocked( $url ) ) {
 			throw new WP_Exception( 'webhook_url_blocked' );
 		}
@@ -267,8 +267,14 @@ class Dispatcher {
 		$response = wp_remote_post( $url, $args );
 
 		if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
-			$this->schedule_retry_if_applicable( $url, $action, $entity, $id, $payload, $headers, $webhook );
-			$this->trigger_webhook_failure( $url, $response, $webhook );
+			try {
+				if ( $schedule_retries ) {
+					$this->schedule_retry_if_applicable( $url, $action, $entity, $id, $payload, $headers, $webhook );
+				}
+			} finally {
+				// A rejected retry must still count as a failed delivery and fire failure hooks.
+				$this->trigger_webhook_failure( $url, $response, $webhook );
+			}
 			return;
 		}
 
@@ -338,8 +344,7 @@ class Dispatcher {
 	/**
 	 * Handle failed webhook delivery.
 	 *
-	 * Tracks failed webhook events (not individual retry attempts) for blocking decisions.
-	 * Each webhook event that fails (after Action Scheduler retries) increments the counter by 1.
+	 * Each failed delivery attempt, including retries, increments the URL counter.
 	 * If max_consecutive_failures is 0, blocking is disabled entirely.
 	 *
 	 * @param string  $url      The webhook URL.
@@ -372,7 +377,7 @@ class Dispatcher {
 			do_action( 'wpwf_webhook_blocked', $url, $response, $max_failures, $webhook );
 		}
 
-		// Throw exception to mark Action Scheduler action as failed (triggers AS retry)
+		// Retries are scheduled by the framework; the exception marks this attempt failed.
 		throw new WP_Exception( 'webhook_delivery_failed' );
 	}
 
@@ -417,6 +422,8 @@ class Dispatcher {
 	 * @param array<string,mixed> $payload      The payload data.
 	 * @param array<string,mixed> $headers      The headers.
 	 * @param Webhook|null        $webhook      Webhook instance for configuration.
+	 *
+	 * @throws WP_Exception If the scheduler rejects the retry.
 	 */
 	private function schedule_retry_if_applicable( string $url, string $action, string $entity, int|string $id, array $payload, array $headers, ?Webhook $webhook ): void {
 		if ( ! $webhook ) {
@@ -441,7 +448,7 @@ class Dispatcher {
 		$this->ensure_action_scheduler_available();
 
 		// Schedule the retry
-		as_schedule_single_action(
+		$action_id = as_schedule_single_action(
 			time() + $delay,
 			'wpwf_send_webhook',
 			array(
@@ -454,5 +461,9 @@ class Dispatcher {
 			),
 			'wpwf'
 		);
+
+		if ( 0 === $action_id ) {
+			throw new WP_Exception( 'webhook_retry_schedule_failed' );
+		}
 	}
 }
