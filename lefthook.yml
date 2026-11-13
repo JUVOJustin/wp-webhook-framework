@@ -2,7 +2,7 @@ pre-commit:
   jobs:
     - name: Format staged PHP
       glob: "*.php"
-      run: pnpm exec wp-env run cli --env-cwd=wp-content/wpwf-framework sh -c 'vendor/bin/phpcbf "$@"; result=$?; test "$result" -le 1' -- {staged_files}
+      run: pnpm exec wp-env run cli --env-cwd=wp-content/wpwf-framework sh -c 'vendor/bin/phpcbf "$@"; result=$?; test "$result" -le 1' _ {staged_files}
       stage_fixed: true
 pre-push:
   piped: true
