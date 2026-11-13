@@ -18,6 +18,33 @@ namespace juvo\WP_Webhook_Framework;
 abstract class Webhook {
 
 	/**
+	 * Whether update events are state notifications rather than an event log.
+	 *
+	 * @var bool
+	 */
+	private bool $coalesce_updates = true;
+
+	/**
+	 * Opt out when every update carries an independently meaningful event or delta.
+	 *
+	 * @param bool $enabled Whether pending updates may replace earlier hints.
+	 * @return static
+	 */
+	public function coalesce_updates( bool $enabled ): static {
+		$this->coalesce_updates = $enabled;
+		return $this;
+	}
+
+	/**
+	 * Let the dispatcher preserve event streams that must not lose intermediate changes.
+	 *
+	 * @return bool
+	 */
+	public function get_coalesce_updates(): bool {
+		return $this->coalesce_updates;
+	}
+
+	/**
 	 * Maximum allowed timeout in seconds.
 	 */
 	private const MAX_TIMEOUT = 300;

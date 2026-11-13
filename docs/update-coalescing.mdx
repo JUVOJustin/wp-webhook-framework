@@ -1,0 +1,96 @@
+---
+title: Update Notifications
+description: Coalesce pending updates and synchronize receivers with authoritative entity state.
+sidebar:
+  order: 6
+---
+
+Scheduled `update` webhooks are latest-state notifications by default. Multiple
+pending changes to the same destination, webhook name, entity type and entity ID
+share one delivery. Meta entities also include `meta_type` in this identity.
+Numeric ID `42` and string ID `"42"` refer to the same identity.
+
+## Receiver contract
+
+Treat an update as “this resource changed.” Use `rest_url`, when available, to
+fetch its current state with the receiver's own authorized API credentials.
+Changes can happen again between notification and retrieval. Handle a deleted
+resource or a missing REST endpoint explicitly; custom entities may need their
+own retrieval route.
+
+The latest accepted payload and headers replace the earlier pending snapshot.
+You can include `changes` or field hints, but they are not a complete history:
+a title change followed by a price change may deliver only the price hint.
+Acceptance order in the queue determines the winner, not a timestamp supplied
+by the producer. Delivery-time enrichment still supplies current entity metadata.
+
+This fits state synchronization, cache invalidation and search indexing.
+[Stripe's thin event model](https://docs.stripe.com/events/how-events-work) similarly
+uses notifications to retrieve the related resource. Coalescing is this library's
+explicit policy, not a universal rule for webhooks.
+
+For audit trails, payments or integrations that must process every individual
+update, disable coalescing before emitting events:
+
+```php
+use juvo\WP_Webhook_Framework\Webhooks\Post_Webhook;
+
+$post = new Post_Webhook();
+$post->webhook_url( 'https://receiver.example/webhooks' )
+     ->coalesce_updates( false );
+```
+
+`create`, `delete` and other action names are queued individually. Immediate
+first attempts and their retries retain their existing behavior. There is no
+global ordering guarantee across actions or entities.
+
+## Pending and running deliveries
+
+The first update sets a deadline five seconds ahead. Later updates replace its
+content without postponing that deadline or canceling and recreating the job.
+An update received during HTTP delivery survives acknowledgment of the older
+snapshot and gets a follow-up action when that attempt finishes.
+
+`wpwf-update-id` identifies the accepted snapshot. Retries retain this ID;
+a newer accepted update gets a new ID. Receivers should remain idempotent:
+a timeout or worker interruption after successful remote processing can cause
+redelivery. The framework does not guarantee exactly-once delivery.
+
+A newer update replaces a pending retry's content and starts a fresh retry
+budget while preserving its existing backoff deadline. Older attempts cannot
+replace or delete newer state. URL blocking and configured retry limits still
+apply; success, exhausted retries and terminal failures remove the snapshot.
+See [Failure Handling](./failure-handling.mdx).
+
+## Persistence and recovery
+
+The scheduler receives only a stable identity key. Payloads and headers live in
+non-autoloaded JSON records under `wpwf_pending_update_` in the site's options
+table. These internal records bypass the options cache and are deleted after
+acknowledgment; scheduler history retains the identity, not the complete payload.
+Avoid placing unnecessary sensitive data in change hints or headers.
+
+MySQL 5.7.5+ / MariaDB 10.1+ connection-scoped `GET_LOCK` mutexes serialize writers
+and delivery workers for each identity. Older versions are rejected because
+send and state locks must coexist. This requires a single writable database
+server and a connection that preserves named locks; SQLite and transaction-pooling proxies are unsupported for this
+path. Emit after committing any application-managed transaction. Normal
+WordPress autocommit requests are supported. A lock or write failure is reported
+through the existing dispatcher exception / `emit()` warning path.
+
+Action Scheduler 4.2's native database store additionally enforces unique actions
+with an index. Per-identity groups and the mutex keep framework scheduling safe
+with the older 3.x comparison and the migration HybridStore as well. Changed
+payloads do not change scheduler arguments, so no paginated action scan is needed.
+
+A recurring recovery job revisits durable records in pages of 100 once per minute
+when the queue runs. It repairs interrupted enqueues and retries snapshots left
+by workers after Action Scheduler marks those workers failed. More than 100
+pending identities require multiple passes. Keep the framework registered and
+the scheduler runner operational while deliveries remain pending. Canceling a
+scheduler wake-up alone leaves its durable notification eligible for recovery.
+
+Existing six-argument `wpwf_send_webhook` jobs continue to execute with their
+original payload. They are not merged into the new queue, so an upgrade can
+briefly deliver both an old snapshot and a new update. A rollback must retain
+the new handler until `wpwf_send_update` jobs and their records have drained.

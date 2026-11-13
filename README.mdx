@@ -13,8 +13,8 @@ Entity-level webhooks for WordPress using Action Scheduler with optional immedia
 ## Features
 
 - **Delivery mode control** - Choose scheduled async delivery (default) or immediate synchronous first attempt
-- **Action Scheduler dispatch** - 5s delay for queued webhooks with deduplication
-- **Automatic deduplication** - Dispatcher-level on action+entity+id and meta-level per-request dedup for plugin hooks (ACF, Meta Box, etc.)
+- **Action Scheduler dispatch** - 5s initial delay for queued webhooks
+- **Latest-state updates** - Coalesce scheduled updates per destination, webhook and entity; send the latest change hints. Other actions remain individual events.
 - **Entity-aware delivery payloads** - Derives post_type, taxonomy, and roles at send time
 - **Send-time enrichment** - Adds REST URLs when available
 - **ACF integration** - Adds field key/name context to meta changes
@@ -37,7 +37,13 @@ composer require citation-media/wp-webhook-framework
 | --- | --- |
 | WordPress | 6.7 or newer |
 | PHP | 8.1 or newer |
-| Action Scheduler | 3.7 or newer (declared as a Composer dependency) |
+| Action Scheduler | 3.x from 3.7, or 4.x from 4.2 (Composer dependency) |
+| Coalesced updates | MySQL 5.7.5+ / MariaDB 10.1+ with connection-scoped named locks |
+
+Action Scheduler 4.2 requires WordPress 6.9 or newer. On WordPress 6.7–6.8,
+consumers must constrain `woocommerce/action-scheduler` to `^3.7`; Composer
+cannot infer the installed WordPress version. Future major scheduler versions
+require a separate compatibility review.
 
 WordPress 6.7 is a hard requirement: the dispatcher signals every delivery and
 configuration failure by throwing [`WP_Exception`](https://developer.wordpress.org/reference/classes/wp_exception/),
@@ -129,7 +135,8 @@ See [Hooks and Filters](./docs/hooks-and-filters.mdx) for all available hooks an
 **Data Flow:**
 ```
 WordPress hook → Webhook → Handler::prepare_payload() → Webhook::emit() → Dispatcher
-  ├─ scheduled mode: queue in Action Scheduler → process_scheduled_webhook() → HTTP POST
+  ├─ scheduled update: persist latest snapshot → unique scheduler wake-up → HTTP POST
+  ├─ other scheduled events: queue complete arguments → HTTP POST
   └─ immediate mode: send now in current request → HTTP POST
 ```
 
@@ -162,9 +169,12 @@ Example post webhook payload:
 - User: `roles[]`
 - `rest_url`
 
+See [Update Notifications](./docs/update-coalescing.mdx) for coalescing, receiver-side
+resource retrieval, idempotency and opting out of latest-state delivery.
+
 ## Failure Monitoring
 
-- **Email notifications** on first failure after retries exhausted (opt-in via `notifications(['blocked'])`)
+- **Email notifications** when a URL becomes blocked (opt-in via `notifications(['blocked'])`)
 - **Automatic blocking** after 10 consecutive failures within 1 hour
 - **Auto-unblock** after 1 hour
 - **Success resets** failure count and blocked status
@@ -183,11 +193,11 @@ See [Failure Handling](./docs/failure-handling.mdx) for configuration and custom
 
 ```bash
 composer install              # Install dependencies
-npm install                   # Install wp-env tooling
-npm run wp-env:start          # Start WordPress test environment
-npm run composer:install      # Install Composer dependencies inside wp-env
-npm run test:phpunit          # Run application tests
-npm run wp-env:stop           # Stop WordPress test environment
+pnpm install                   # Install wp-env tooling
+pnpm run wp-env:start          # Start WordPress test environment
+pnpm run composer:install      # Install Composer dependencies inside wp-env
+pnpm run test:phpunit          # Run application tests
+pnpm run wp-env:stop           # Stop WordPress test environment
 composer run-script phpstan   # Run static analysis
 composer run-script phpcs     # Lint code
 composer run-script phpcbf    # Auto-fix code style
@@ -202,3 +212,12 @@ composer run-script phpcbf    # Auto-fix code style
 - [Notifications](./docs/notifications.mdx) - Notification system, opt-in pattern, and custom handlers
 - [Testing](./docs/testing.mdx) - wp-env application test suite, fixture plugins, and validation workflow
 - [Webhook Statefulness](./docs/webhook-statefulness.mdx) - Webhook statelessness rules and best practices
+
+## Releases
+
+This Composer library publishes versions through GitHub Releases with matching
+Semantic Versioning tags. A maintainer selects the release version after the PR
+is merged and its checks pass, then creates the release from that commit. There
+is no source `version` field to update: Composer derives it from the tag. Do not
+publish a standalone tag without the corresponding release. Changes to default
+update-delivery semantics must be called out in the release notes.

@@ -34,6 +34,7 @@ final class ActionSchedulerBootstrapTest extends WP_UnitTestCase {
 	 * The scheduling API the Dispatcher calls unguarded must be defined.
 	 */
 	public function test_scheduling_functions_are_available(): void {
+		$this->assertTrue( ActionScheduler::is_initialized() );
 		$this->assertTrue( function_exists( 'as_schedule_single_action' ) );
 		$this->assertTrue( function_exists( 'as_get_scheduled_actions' ) );
 	}

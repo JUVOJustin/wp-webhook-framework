@@ -27,9 +27,9 @@ use juvo\WP_Webhook_Framework\Support\AcfUtil;
  * - BOTH:   Emit the meta-entity webhook AND trigger the parent
  *           entity update webhook. This is the default.
  * - ENTITY: Only trigger the parent entity update webhook
- *           (e.g. entity = "post"). The Dispatcher deduplicates
- *           on (url, action, entity, id), so rapid meta changes
- *           on the same object collapse into a single delivery.
+ *           (e.g. entity = "post"). Scheduled updates coalesce
+ *           per destination, webhook name and entity identity by default,
+ *           retaining the latest pending hints.
  *
  * Usage examples:
  *   ->emission_mode( Meta_Emission_Mode::META )
@@ -397,8 +397,7 @@ class Meta_Webhook extends Webhook {
 		}
 
 		// Trigger parent entity update when mode includes entity emission.
-		// The Dispatcher deduplicates on (url, action, entity, id), so
-		// rapid meta changes on the same object collapse into one delivery.
+		// Scheduled parent updates coalesce per webhook and entity by default.
 		if ( $this->emission_mode->includes_entity() ) {
 			$this->trigger_entity_update( $meta_type, $object_id );
 		}
