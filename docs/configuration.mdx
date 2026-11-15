@@ -15,6 +15,7 @@ Configure individual webhooks using chainable methods.
 |--------|-------------|---------|
 | `webhook_url(string)` | Custom endpoint URL | None |
 | `delivery_mode(Delivery_Mode)` | Delivery strategy (`SCHEDULED` or `IMMEDIATE`) | `Delivery_Mode::SCHEDULED` |
+| `stack_updates(bool)` | Aggregate scheduled updates in fixed 60-second windows | `true` |
 | `max_consecutive_failures(int)` | Failures before blocking (0 disables) | 10 |
 | `max_retries(int)` | Retry attempts per failed event | 0 |
 | `timeout(int)` | HTTP timeout in seconds (1-300) | 30 |
@@ -27,7 +28,7 @@ The base `Webhook` class supports two delivery modes through `delivery_mode()` a
 
 | Enum case | Behavior | Default |
 |----------|----------|---------|
-| `Delivery_Mode::SCHEDULED` | Queue delivery in Action Scheduler with pending deduplication | **Yes** |
+| `Delivery_Mode::SCHEDULED` | Queue updates with stacking; other actions retain pending deduplication | **Yes** |
 | `Delivery_Mode::IMMEDIATE` | Send first attempt in the current request | No |
 
 ```php
@@ -40,7 +41,13 @@ $post->webhook_url( 'https://api.example.com/posts' )
      ->max_retries( 2 );
 ```
 
-When `Delivery_Mode::IMMEDIATE` fails, retries still run through Action Scheduler using the configured backoff logic.
+When `Delivery_Mode::IMMEDIATE` fails, retries still run through Action Scheduler using the configured backoff logic. Immediate attempts and their retries never stack.
+
+Scheduled updates use the [stacking envelope](./update-stacking.mdx) by default.
+Use `$webhook->stack_updates( false )` to preserve the flat body and first-pending
+payload behavior. Default-on stacking was introduced in 3.0.0. Unsupported database
+versions and database-router subclasses automatically retain legacy dispatch; see
+[database requirements](./update-stacking.mdx).
 
 ### Meta Emission Modes
 
@@ -66,8 +73,9 @@ if ( $meta_webhook instanceof Meta_Webhook ) {
 }
 ```
 
-In `Meta_Emission_Mode::ENTITY` mode the Dispatcher deduplicates on `(url, action, entity, id)`,
-so rapid meta changes on the same post collapse into a single delivery.
+In `Meta_Emission_Mode::ENTITY` mode, rapid parent-entity updates can share a
+60-second stack. With stacking disabled, legacy pending deduplication retains
+only the first matching payload.
 
 ### Chainable Configuration
 
@@ -242,6 +250,10 @@ The framework accepts `^3.7 || ^4.2`; future major versions are not implicitly
 supported. Register the provider while the plugin loads and emit queued events
 after Action Scheduler initializes at `init` priority 1.
 
+Stacked updates store their bodies separately; see [stacking limits and database
+requirements](./update-stacking.mdx). The following limits and deduplication rules
+apply to the legacy path (stacking disabled, or non-update actions).
+
 The default scheduler store limits complete JSON-encoded arguments to 8,000
 characters, including URL, payload and headers. Prefer identifiers and retrieval
 URLs over large embedded documents.
@@ -258,10 +270,10 @@ expensive on a large backlog. Keep the queue running.
 The native database store provides stable action-ID pagination. Legacy post-based
 stores may sort equal timestamps inconsistently; complete that scheduler migration
 before relying on paginated deduplication. The check and enqueue remain non-atomic
-across concurrent producers; this release does not guarantee duplicate-free delivery.
+across concurrent producers; legacy scheduling does not guarantee duplicate-free delivery.
 
-:::caution[Meta webhook behavior]
-The existing identity excludes `meta_key` and `meta_type`. Changes to different
+:::caution[Legacy meta webhook behavior]
+The legacy identity excludes `meta_key` and `meta_type`. Changes to different
 meta keys on one object retain only the first pending payload; post and user meta
 with the same object ID, action and destination can also collide. Previously,
 large arguments accidentally bypassed this deduplication. The fix makes it

@@ -397,8 +397,8 @@ class Meta_Webhook extends Webhook {
 		}
 
 		// Trigger parent entity update when mode includes entity emission.
-		// The Dispatcher deduplicates on (url, action, entity, id), so
-		// rapid meta changes on the same object collapse into one delivery.
+		// Scheduled parent updates share fixed windows when stacking is enabled;
+		// the legacy path retains only the first matching pending payload.
 		if ( $this->emission_mode->includes_entity() ) {
 			$this->trigger_entity_update( $meta_type, $object_id );
 		}
