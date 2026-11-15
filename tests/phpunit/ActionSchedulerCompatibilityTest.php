@@ -15,7 +15,7 @@ use juvo\WP_Webhook_Framework\Service_Provider;
 final class ActionSchedulerCompatibilityTest extends WPWF_Webhook_Test_Case {
 
 	/**
-	 * Large payloads live outside the scheduler while stable identities coalesce.
+	 * Extended scheduler arguments must preserve first-pending-payload deduplication.
 	 */
 	public function test_large_payload_is_deduplicated_without_merging_destinations(): void {
 		$dispatcher = Service_Provider::get_dispatcher();
@@ -29,7 +29,46 @@ final class ActionSchedulerCompatibilityTest extends WPWF_Webhook_Test_Case {
 
 		$actions = $this->get_scheduled_webhook_actions();
 		$this->assertCount( 2, $actions );
-		$this->assertSame( array( 'changed' => true ), $actions[0]['payload'] );
+		$this->assertSame( $payload, $actions[0]['payload'] );
+	}
+
+	/**
+	 * Dependency upgrades must not replace pending content or change the legacy identity.
+	 */
+	public function test_first_pending_payload_and_headers_survive_for_every_action(): void {
+		$dispatcher = Service_Provider::get_dispatcher();
+		$url        = $this->get_receiver_webhook_url( 'compat-first' );
+		foreach ( array( 'create', 'update', 'delete', 'custom' ) as $action ) {
+			$dispatcher->schedule(
+				$action,
+				'custom',
+				42,
+				$url,
+				array( 'version' => 'first' ),
+				array(
+					'wpwf-webhook-name' => 'custom_primary',
+					'custom'            => 'first',
+				)
+			);
+			$dispatcher->schedule(
+				$action,
+				'custom',
+				'42',
+				$url,
+				array( 'version' => 'second' ),
+				array(
+					'wpwf-webhook-name' => 'another',
+					'custom'            => 'second',
+				)
+			);
+		}
+		$actions = $this->get_scheduled_webhook_actions();
+		$this->assertCount( 4, $actions );
+		foreach ( $actions as $action ) {
+			$this->assertSame( array( 'version' => 'first' ), $action['payload'] );
+			$this->assertSame( 'first', $action['headers']['custom'] );
+			$this->assertSame( 'custom_primary', $action['headers']['wpwf-webhook-name'] );
+		}
 	}
 
 	/**
@@ -69,14 +108,24 @@ final class ActionSchedulerCompatibilityTest extends WPWF_Webhook_Test_Case {
 	/**
 	 * Many distinct identities must each retain one wake-up action.
 	 */
-	public function test_coalescing_keeps_distinct_identities(): void {
+	public function test_deduplication_searches_beyond_the_first_page(): void {
 		$dispatcher = Service_Provider::get_dispatcher();
 		$url        = $this->get_receiver_webhook_url( 'compat-pages' );
-		for ( $id = 1; $id <= 26; ++$id ) {
+		for ( $id = 1; $id <= 105; ++$id ) {
 			$dispatcher->schedule( 'update', 'custom', $id, $url );
 		}
-		$dispatcher->schedule( 'update', 'custom', 26, $url );
-		$this->assertCount( 26, $this->get_scheduled_webhook_actions() );
+		$dispatcher->schedule( 'update', 'custom', 105, $url );
+		$this->assertCount(
+			105,
+			as_get_scheduled_actions(
+				array(
+					'hook'     => 'wpwf_send_webhook',
+					'status'   => ActionScheduler_Store::STATUS_PENDING,
+					'per_page' => 200,
+				),
+				'ids'
+			)
+		);
 	}
 
 	/**

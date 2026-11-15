@@ -68,39 +68,20 @@ abstract class WPWF_Webhook_Test_Case extends WP_UnitTestCase {
 		$actions = array();
 		$store   = $this->get_action_store();
 
-		$action_ids = array();
-		foreach ( array( 'wpwf_send_webhook', \juvo\WP_Webhook_Framework\Update_Queue::HOOK ) as $hook ) {
-			$action_ids = array_merge(
-				$action_ids,
-				\as_get_scheduled_actions(
-					array(
-						'hook'     => $hook,
-						'status'   => \ActionScheduler_Store::STATUS_PENDING,
-						'orderby'  => 'date',
-						'order'    => 'ASC',
-						'per_page' => 100,
-					),
-					'ids'
-				)
-			);
-		}
+		$action_ids = \as_get_scheduled_actions(
+			array(
+				'hook'     => 'wpwf_send_webhook',
+				'status'   => \ActionScheduler_Store::STATUS_PENDING,
+				'orderby'  => 'date',
+				'order'    => 'ASC',
+				'per_page' => 100,
+			),
+			'ids'
+		);
 
 		foreach ( $action_ids as $action_id ) {
 			$action = $store->fetch_action( $action_id );
 			$args   = $action->get_args();
-			if ( \juvo\WP_Webhook_Framework\Update_Queue::HOOK === $action->get_hook() ) {
-				$key    = $args['key'];
-				$record = ( new \juvo\WP_Webhook_Framework\Update_Store() )->get( $key );
-				if ( null === $record ) {
-					continue;
-				}
-				$args               = $record;
-				$args['action']     = 'update';
-				$args['update_key'] = $key;
-				if ( 0 < $record['attempt'] ) {
-					$args['headers']['wpwf-retry-count'] = $record['attempt'];
-				}
-			}
 
 			if ( ! is_array( $args ) ) {
 				continue;
@@ -164,7 +145,6 @@ abstract class WPWF_Webhook_Test_Case extends WP_UnitTestCase {
 			} catch ( \Throwable $throwable ) {
 				if ( method_exists( $store, 'mark_failure' ) ) {
 					$store->mark_failure( $action_id );
-					do_action( 'action_scheduler_failed_execution', $action_id, $throwable, 'wpwf-test' );
 				}
 
 				if ( ! $allow_failures ) {
@@ -181,21 +161,21 @@ abstract class WPWF_Webhook_Test_Case extends WP_UnitTestCase {
 	 */
 	protected function clear_scheduled_webhooks(): void {
 		$store = $this->get_action_store();
-		foreach ( array( 'wpwf_send_webhook', \juvo\WP_Webhook_Framework\Update_Queue::HOOK ) as $hook ) {
-			foreach ( \as_get_scheduled_actions(
+		do {
+			$action_ids = \as_get_scheduled_actions(
 				array(
-					'hook'     => $hook,
+					'hook'     => 'wpwf_send_webhook',
+					'orderby'  => 'date',
+					'order'    => 'ASC',
 					'per_page' => 100,
 				),
 				'ids'
-			) as $action_id ) {
+			);
+
+			foreach ( $action_ids as $action_id ) {
 				$store->delete_action( $action_id );
 			}
-		}
-		$updates = new \juvo\WP_Webhook_Framework\Update_Store();
-		foreach ( $updates->pending_keys() as $key ) {
-			$updates->delete( $key );
-		}
+		} while ( ! empty( $action_ids ) );
 	}
 
 	/**

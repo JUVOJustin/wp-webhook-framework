@@ -69,7 +69,6 @@ Add new docs with an "@" mention to the "AGENTS.md" including a quick explanatio
 - @docs/failure-handling.mdx - Failure monitoring, retry mechanism, blocking behavior
 - @docs/testing.mdx - wp-env application test setup, fixture plugins, and local test commands
 
-- @docs/update-coalescing.mdx - Latest-state updates, receiver contract, persistence, recovery, and upgrade behavior
 
 ## Releases
 

@@ -14,7 +14,7 @@ Entity-level webhooks for WordPress using Action Scheduler with optional immedia
 
 - **Delivery mode control** - Choose scheduled async delivery (default) or immediate synchronous first attempt
 - **Action Scheduler dispatch** - 5s initial delay for queued webhooks
-- **Latest-state updates** - Coalesce scheduled updates per destination, webhook and entity; send the latest change hints. Other actions remain individual events.
+- **Pending deduplication** - Retain the first queued payload per destination, action and entity until delivery.
 - **Entity-aware delivery payloads** - Derives post_type, taxonomy, and roles at send time
 - **Send-time enrichment** - Adds REST URLs when available
 - **ACF integration** - Adds field key/name context to meta changes
@@ -38,7 +38,6 @@ composer require citation-media/wp-webhook-framework
 | WordPress | 6.7 or newer |
 | PHP | 8.1 or newer |
 | Action Scheduler | 3.x from 3.7, or 4.x from 4.2 (Composer dependency) |
-| Coalesced updates | MySQL 5.7.5+ / MariaDB 10.1+ with connection-scoped named locks |
 
 Action Scheduler 4.2 requires WordPress 6.9 or newer. On WordPress 6.7–6.8,
 consumers must constrain `woocommerce/action-scheduler` to `^3.7`; Composer
@@ -135,8 +134,7 @@ See [Hooks and Filters](./docs/hooks-and-filters.mdx) for all available hooks an
 **Data Flow:**
 ```
 WordPress hook → Webhook → Handler::prepare_payload() → Webhook::emit() → Dispatcher
-  ├─ scheduled update: persist latest snapshot → unique scheduler wake-up → HTTP POST
-  ├─ other scheduled events: queue complete arguments → HTTP POST
+  ├─ scheduled mode: deduplicate pending jobs → Action Scheduler → HTTP POST
   └─ immediate mode: send now in current request → HTTP POST
 ```
 
@@ -168,9 +166,6 @@ Example post webhook payload:
 - Term: `taxonomy`
 - User: `roles[]`
 - `rest_url`
-
-See [Update Notifications](./docs/update-coalescing.mdx) for coalescing, receiver-side
-resource retrieval, idempotency and opting out of latest-state delivery.
 
 ## Failure Monitoring
 
@@ -219,5 +214,4 @@ This Composer library publishes versions through GitHub Releases with matching
 Semantic Versioning tags. A maintainer selects the release version after the PR
 is merged and its checks pass, then creates the release from that commit. There
 is no source `version` field to update: Composer derives it from the tag. Do not
-publish a standalone tag without the corresponding release. Changes to default
-update-delivery semantics must be called out in the release notes.
+publish a standalone tag without the corresponding release.

@@ -48,12 +48,6 @@ from making HTTP requests.
 
 Retry count is tracked in `wpwf-retry-count` header.
 
-For coalesced scheduled updates, retries belong to the current snapshot. A newer
-update replaces the pending retry content, resets its retry budget, and keeps
-the scheduled backoff deadline. A running older attempt cannot overwrite newer
-content. Terminal failures, including blocked URLs or a missing registered
-webhook, remove that snapshot. See [Update Notifications](./update-coalescing.mdx).
-
 ### Customizing Retry Delays
 
 ```php

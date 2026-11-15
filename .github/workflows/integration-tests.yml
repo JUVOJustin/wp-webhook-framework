@@ -75,7 +75,6 @@ jobs:
       - name: Run wp-env application tests
         run: |
           pnpm run test:phpunit
-          pnpm run test:concurrency
 
       - name: Stop wp-env
         if: ${{ always() }}
