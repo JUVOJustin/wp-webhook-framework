@@ -40,3 +40,6 @@ logs/
 # Temporary files
 tmp/
 temp/
+
+# Local review receipt
+.citation-review

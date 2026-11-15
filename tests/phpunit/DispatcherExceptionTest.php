@@ -279,6 +279,7 @@ final class DispatcherExceptionTest extends WPWF_Webhook_Test_Case {
 		$this->block_url( $url );
 
 		$messages = array();
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_set_error_handler -- Tests assert the documented warning path.
 		set_error_handler(
 			static function ( int $error_level, string $message ) use ( &$messages ): bool {
 				if ( E_USER_WARNING !== $error_level ) {

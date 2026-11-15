@@ -42,7 +42,7 @@ abstract class WPWF_Webhook_Test_Case extends WP_UnitTestCase {
 	protected function get_receiver_base_url(): string {
 		$base_url = getenv( 'WPWF_TEST_RECEIVER_BASE_URL' );
 		if ( ! is_string( $base_url ) || '' === $base_url ) {
-			$base_url = 'http://wordpress';
+			$base_url = 'http://tests-wordpress';
 		}
 
 		return \untrailingslashit( $base_url );
@@ -129,14 +129,15 @@ abstract class WPWF_Webhook_Test_Case extends WP_UnitTestCase {
 	 * Executes all queued framework webhook actions immediately.
 	 *
 	 * @param bool $allow_failures Whether delivery failures should be swallowed.
+	 * @throws \Throwable If a delivery fails and failures are not allowed.
 	 */
 	protected function run_scheduled_webhooks( bool $allow_failures = false ): void {
 		$actions = $this->get_scheduled_webhook_actions();
 		$store   = $this->get_action_store();
 
 		foreach ( $actions as $action ) {
-			$action_id      = (int) $action['action_id'];
-			$stored_action  = $store->fetch_action( $action_id );
+			$action_id     = (int) $action['action_id'];
+			$stored_action = $store->fetch_action( $action_id );
 
 			try {
 				$stored_action->execute();
@@ -159,20 +160,22 @@ abstract class WPWF_Webhook_Test_Case extends WP_UnitTestCase {
 	 * Removes all queued framework webhook actions.
 	 */
 	protected function clear_scheduled_webhooks(): void {
-		$store      = $this->get_action_store();
-		$action_ids = \as_get_scheduled_actions(
-			array(
-				'hook'     => 'wpwf_send_webhook',
-				'orderby'  => 'date',
-				'order'    => 'ASC',
-				'per_page' => 100,
-			),
-			'ids'
-		);
+		$store = $this->get_action_store();
+		do {
+			$action_ids = \as_get_scheduled_actions(
+				array(
+					'hook'     => 'wpwf_send_webhook',
+					'orderby'  => 'date',
+					'order'    => 'ASC',
+					'per_page' => 100,
+				),
+				'ids'
+			);
 
-		foreach ( $action_ids as $action_id ) {
-			$store->delete_action( $action_id );
-		}
+			foreach ( $action_ids as $action_id ) {
+				$store->delete_action( $action_id );
+			}
+		} while ( ! empty( $action_ids ) );
 	}
 
 	/**
@@ -214,7 +217,7 @@ abstract class WPWF_Webhook_Test_Case extends WP_UnitTestCase {
 	 */
 	protected function get_captured_request_by_webhook_name( string $webhook_name ): array {
 		foreach ( $this->get_receiver_logs() as $request ) {
-			if ( $webhook_name === (string) ( $request['webhook_name'] ?? '' ) ) {
+			if ( (string) ( $request['webhook_name'] ?? '' ) === $webhook_name ) {
 				return $request;
 			}
 		}

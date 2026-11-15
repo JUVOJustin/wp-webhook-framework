@@ -27,7 +27,7 @@ The base `Webhook` class supports two delivery modes through `delivery_mode()` a
 
 | Enum case | Behavior | Default |
 |----------|----------|---------|
-| `Delivery_Mode::SCHEDULED` | Queue delivery in Action Scheduler with deduplication | **Yes** |
+| `Delivery_Mode::SCHEDULED` | Queue delivery in Action Scheduler with pending deduplication | **Yes** |
 | `Delivery_Mode::IMMEDIATE` | Send first attempt in the current request | No |
 
 ```php
@@ -150,7 +150,8 @@ add_action( 'wpwf_register_webhooks', function ( Webhook_Registry $registry ): v
 ## Multiple Endpoints for the Same Entity
 
 Register additional webhook instances instead of modifying the built-in ones.
-Each instance has its own URL, retry policy, timeout, and failure tracking:
+Each instance has its own URL, retry policy and timeout. Failure counters are shared
+by destination URL:
 
 ```php
 add_action( 'wpwf_register_webhooks', function ( Webhook_Registry $registry ): void {
@@ -171,7 +172,8 @@ add_action( 'wpwf_register_webhooks', function ( Webhook_Registry $registry ): v
 ```
 
 Each instance registers its own WordPress hooks and dispatches independently.
-This keeps configuration, failure tracking, and retry logic fully isolated.
+Configuration and retry policies stay separate; instances targeting the same URL
+share its failure counter and blocked status.
 
 ## Configuration Priority
 
@@ -231,3 +233,46 @@ add_filter( 'wpwf_payload', function ( array $payload, string $entity, int|strin
     return $payload;
 }, 10, 3 );
 ```
+
+## Scheduler requirements and payload limits
+
+Action Scheduler 4.2 requires WordPress 6.9 or newer. WordPress 6.7–6.8
+consumers must constrain the scheduler to `^3.7` in their root Composer manifest.
+The framework accepts `^3.7 || ^4.2`; future major versions are not implicitly
+supported. Register the provider while the plugin loads and emit queued events
+after Action Scheduler initializes at `init` priority 1.
+
+The default scheduler store limits complete JSON-encoded arguments to 8,000
+characters, including URL, payload and headers. Prefer identifiers and retrieval
+URLs over large embedded documents.
+
+Pending deduplication preserves the first payload for `(url, action, entity, id)`.
+For canonical integer IDs, the scheduler's public search narrows candidates in
+both argument columns, followed by an exact comparison in PHP. Other custom IDs
+fall back to scanning complete arguments in pages of 100 because partial JSON
+queries do not inspect `extended_args`. This avoids fetching every unrelated
+queued action for normal WordPress IDs, but the underlying text search can still
+scan database rows. Custom IDs and many candidates sharing one ID can remain
+expensive on a large backlog. Keep the queue running.
+
+The native database store provides stable action-ID pagination. Legacy post-based
+stores may sort equal timestamps inconsistently; complete that scheduler migration
+before relying on paginated deduplication. The check and enqueue remain non-atomic
+across concurrent producers; this release does not guarantee duplicate-free delivery.
+
+:::caution[Meta webhook behavior]
+The existing identity excludes `meta_key` and `meta_type`. Changes to different
+meta keys on one object retain only the first pending payload; post and user meta
+with the same object ID, action and destination can also collide. Previously,
+large arguments accidentally bypassed this deduplication. The fix makes it
+consistent, so integrations relying on one delivery per meta key must account
+for this behavior. Meta notifications are not a complete change log.
+:::
+
+Action Scheduler 4.2 native uniqueness compares complete `(hook, args, group)`
+values, including argument types and order. It cannot directly replace the
+framework's selected-field comparison without changing delivery semantics.
+
+An enqueue rejected by the scheduler throws `WP_Exception` with
+`webhook_schedule_failed`; `emit()` reports it through its existing warning path.
+A rejected retry still records the original delivery failure and fires failure hooks.

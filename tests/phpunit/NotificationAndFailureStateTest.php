@@ -29,7 +29,7 @@ final class NotificationAndFailureStateTest extends WPWF_Webhook_Test_Case {
 
 		update_option( 'admin_email', 'alerts@example.com' );
 
-		$mail_filter = static function ( $return, array $atts ) use ( &$mail_log ) {
+		$mail_filter = static function ( $mail_result, array $atts ) use ( &$mail_log ) {
 			$mail_log[] = $atts;
 			return true;
 		};

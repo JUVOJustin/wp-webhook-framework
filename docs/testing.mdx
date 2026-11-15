@@ -7,7 +7,11 @@ sidebar:
 
 Use the bundled `wp-env` application test setup to validate how the framework behaves inside WordPress.
 
-The suite runs against the development site mounted by `.wp-env.json`, while PHPUnit uses the WordPress core test bootstrap inside that container.
+PHPUnit uses the WordPress core test bootstrap in the development container.
+Real HTTP deliveries go to `http://tests-wordpress`, the second wp-env site with
+its own database. This prevents sender test transactions from locking receiver
+log writes. Background runners are disabled in these fixtures; tests explicitly
+advance the queue.
 
 ## What the suite covers
 
@@ -30,11 +34,11 @@ Do not try to recreate the production layout with a `.wp-env.json` mapping point
 ## Commands
 
 ```bash
-npm install
-npm run wp-env:start
-npm run composer:install
-npm run test:phpunit
-npm run wp-env:stop
+pnpm install
+pnpm run wp-env:start
+pnpm run composer:install
+pnpm run test:phpunit
+pnpm run wp-env:stop
 ```
 
 ## Key files
@@ -57,8 +61,53 @@ npm run wp-env:stop
 
 Add new application tests under `tests/phpunit`. Reuse `WPWF_Webhook_Test_Case` when you need to:
 
-- inspect pending `wpwf_send_webhook` actions
+- inspect pending `wpwf_send_webhook` actions with their complete arguments
 - execute scheduled actions immediately
 - assert receiver log entries (URL, headers, payload, webhook name)
 
 This keeps future validation tests focused on webhook behaviour instead of environment setup.
+
+## Action Scheduler compatibility
+
+CI covers WordPress 6.7 with Action Scheduler 3.9.3, WordPress 6.9 with
+Action Scheduler 4.2.0, and current WordPress with the locked scheduler version.
+The Composer constraint permits later 4.x releases; those releases still need
+the application suite before being considered verified.
+
+`ActionSchedulerCompatibilityTest.php` covers large payloads, first-payload retention, pagination beyond 100 pending actions,
+queue-runner completion and rejected scheduling requests.
+`ActionSchedulerNativeUniquenessTest.php` pins the 4.2 native-store contract for
+complete arguments, argument ordering, running actions and uniqueness release.
+These native 4.2 assertions skip on 3.x.
+
+To exercise a different supported scheduler version in the running wp-env:
+
+```sh
+pnpm exec wp-env run cli --env-cwd=wp-content/wpwf-framework composer update woocommerce/action-scheduler:4.2.0 --with-dependencies
+pnpm run test:phpunit
+```
+
+This changes the local Composer lockfile; restore the intended locked version
+after testing. Integration jobs have a 20-minute maximum including setup.
+Container commands cap PHPUnit at 120 seconds, with a five-second kill grace.
+
+## Local hooks and dependency updates
+
+`pnpm install --frozen-lockfile` installs the pinned tools and Lefthook hooks.
+Keep wp-env running before committing or pushing: staged PHP is formatted on
+commit; a push runs PHPCS, PHPStan and the application test suite. The full
+WordPress/Action Scheduler compatibility matrix runs in CI.
+
+Dependabot checks npm, Composer and Actions weekly, with separate patch, review
+and security groups. Verified patch updates can merge only after both CI workflows
+and every other reported check/status succeed for that exact commit. Minor and
+major updates remain manual. The merge workflow never checks out PR code. It re-evaluates open Dependabot PRs
+when classification, CI or external checks/statuses finish, including reruns.
+Classification and merging have three- and five-minute job limits and perform
+no polling waits. Failed or stale heads remain open.
+
+The WordPress 6.7 job installs the separate committed scheduler fixture under
+`tests/fixtures/action-scheduler-3.9` and overlays only that package in the main
+vendor tree. Both dependency sets use frozen Composer installs; CI never resolves
+new versions. Update and commit the fixture lockfile explicitly when changing
+the legacy compatibility target.

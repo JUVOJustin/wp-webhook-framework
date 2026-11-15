@@ -1,0 +1,7 @@
+minimumReleaseAge: 240
+minimumReleaseAgeStrict: false
+allowBuilds:
+  lefthook: false
+  # Native filesystem extension belongs to the unused Playground backend; tests use Docker.
+  fs-ext-extra-prebuilt: false
+pmOnFail: ignore

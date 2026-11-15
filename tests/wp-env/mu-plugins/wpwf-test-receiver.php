@@ -14,6 +14,12 @@ namespace juvo\WP_Webhook_Framework\Tests\Fixtures\Receiver;
 use WP_REST_Request;
 use WP_REST_Response;
 
+// Tests advance the queue explicitly; background runners would race assertions.
+add_filter( 'action_scheduler_allow_async_request_runner', '__return_false' );
+if ( ! defined( 'DISABLE_WP_CRON' ) ) {
+	define( 'DISABLE_WP_CRON', true );
+}
+
 /**
  * Option key used to persist captured webhook requests.
  */
@@ -27,7 +33,7 @@ const RECEIVER_LOG_OPTION_KEY = 'wpwf_test_receiver_logs';
 function receiver_base_url(): string {
 	$base_url = getenv( 'WPWF_TEST_RECEIVER_BASE_URL' );
 	if ( ! is_string( $base_url ) || '' === $base_url ) {
-		$base_url = 'http://wordpress';
+		$base_url = 'http://tests-wordpress';
 	}
 
 	return untrailingslashit( $base_url );
@@ -178,7 +184,7 @@ function normalize_headers( array $headers ): array {
 		$normalized_key = strtolower( str_replace( '_', '-', $key ) );
 
 		if ( is_array( $value ) ) {
-			$first_value         = array_shift( $value );
+			$first_value                   = array_shift( $value );
 			$normalized[ $normalized_key ] = is_scalar( $first_value ) ? (string) $first_value : '';
 			continue;
 		}

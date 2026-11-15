@@ -42,7 +42,7 @@ add_action( 'wpwf_webhook_success', function ( string $url, array $payload, arra
 
 ### `wpwf_webhook_failed`
 
-Fired when a webhook fails after all retries are exhausted, before blocking decision.
+Fired for each failed delivery attempt, including retries, before the blocking decision.
 
 **Parameters:**
 - `$url` (string) - The webhook URL

@@ -1,0 +1,44 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3
+    groups:
+      patch:
+        update-types: [patch]
+      review:
+        update-types: [minor, major]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
+  - package-ecosystem: composer
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3
+    groups:
+      patch:
+        update-types: [patch]
+      review:
+        update-types: [minor, major]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3
+    groups:
+      patch:
+        update-types: [patch]
+      review:
+        update-types: [minor, major]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]

@@ -53,6 +53,7 @@ final class WebhookFilterTest extends WPWF_Webhook_Test_Case {
 		add_filter( 'wpwf_payload', $payload_filter, 10, 3 );
 
 		$warnings = array();
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_set_error_handler -- Tests assert the documented warning path.
 		set_error_handler(
 			static function ( int $error_level, string $message ) use ( &$warnings ): bool {
 				if ( E_USER_WARNING !== $error_level || ! str_contains( $message, 'Failed to emit webhook' ) ) {
