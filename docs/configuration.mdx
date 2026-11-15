@@ -191,7 +191,9 @@ share its failure counter and blocked status.
 
 ### Headers Priority
 1. Webhook-specific `headers()` method
-2. `wpwf_headers` filter (merged)
+2. `wpwf_headers` filter
+3. For stacked deliveries, the protected delivery ID and window headers override
+   configured/filter values; see [update stacking](./update-stacking.mdx).
 
 ### Payload Priority
 1. Original payload from entity handler

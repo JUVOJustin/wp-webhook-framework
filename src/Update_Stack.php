@@ -67,7 +67,7 @@ final class Update_Stack {
 	 * @throws WP_Exception If the stack cannot accept the event.
 	 */
 	public function schedule( string $url, string $entity, int|string $id, array $payload, array $headers ): void {
-		if ( array_key_exists( '_wpwf', $payload ) || array_key_exists( 'aggregated_events', $payload ) ) {
+		if ( array_key_exists( 'timestamp', $payload ) || array_key_exists( 'aggregated_events', $payload ) ) {
 			throw new WP_Exception( 'webhook_stack_reserved_field' );
 		}
 		ksort( $headers );
@@ -216,26 +216,9 @@ final class Update_Stack {
 								throw new WP_Exception( 'webhook_stack_attempts_exhausted' );
 							}
 							if ( null === $record['body'] ) {
-								$latest   = $record['events'][ count( $record['events'] ) - 1 ];
-								$body     = $latest['payload'];
-								$metadata = array(
-									'schema_version' => 2,
-									'delivery_id'    => $record['delivery_id'],
-									'window'         => array(
-										'opened_at'     => gmdate( 'Y-m-d\TH:i:s\Z', $record['opened_at'] ),
-										'scheduled_for' => gmdate( 'Y-m-d\TH:i:s\Z', $record['scheduled_for'] ),
-									),
-									'timestamp'      => $latest['timestamp'],
-								);
-								if ( array_key_exists( '_wpwf', $body ) || array_key_exists( 'aggregated_events', $body ) ) {
-									// Only pre-upgrade records can collide: preserve their accepted envelope contract.
-									$metadata['schema_version'] = 1;
-									$body                       = $metadata + array( 'payload' => $latest['payload'] );
-								} else {
-									$body['_wpwf'] = $metadata;
-								}
-								$body['aggregated_events'] = $record['events'];
-								$record['body']            = $this->dispatcher->seal_stacked_body( $body, $record['entity'], $record['id'], $latest['payload'], $webhook );
+								$latest         = $record['events'][ count( $record['events'] ) - 1 ];
+								$body           = $this->prepare_body( $record );
+								$record['body'] = $this->dispatcher->seal_stacked_body( $body, $record['entity'], $record['id'], $latest['payload'], $webhook );
 							}
 							// Successful preparation replaces the fallback delay with configured backoff.
 							$record['due'] = $this->now() + $webhook->calculate_retry_delay( $record['attempt'] );
@@ -255,7 +238,18 @@ final class Update_Stack {
 					if ( 1 < $record['attempt'] ) {
 						$headers['wpwf-retry-count'] = $record['attempt'] - 1;
 					}
-					$this->dispatcher->process_stacked_webhook( $record['url'], $record['entity'], $record['id'], (string) $record['body'], $headers );
+					$this->dispatcher->process_stacked_webhook(
+						$record['url'],
+						$record['entity'],
+						$record['id'],
+						(string) $record['body'],
+						$headers,
+						array(
+							'wpwf-delivery-id'      => (string) $record['delivery_id'],
+							'wpwf-window-opened-at' => gmdate( 'Y-m-d\TH:i:s\Z', $record['opened_at'] ),
+							'wpwf-window-closed-at' => gmdate( 'Y-m-d\TH:i:s\Z', $record['scheduled_for'] ),
+						)
+					);
 				} catch ( Throwable $error ) {
 					$this->store->locked(
 						$this->identity( $key ),
@@ -271,6 +265,46 @@ final class Update_Stack {
 			},
 			0
 		);
+	}
+
+	/**
+	 * Flatten events while preserving already accepted pre-upgrade field collisions.
+	 *
+	 * @param array<string,mixed> $record Stored stack.
+	 * @phpstan-param StackRecord $record
+	 * @return array<string,mixed>
+	 */
+	private function prepare_body( array $record ): array {
+		$events = array();
+		$legacy = false;
+		foreach ( $record['events'] as $event ) {
+			$legacy   = $legacy || array_key_exists( 'timestamp', $event['payload'] ) || array_key_exists( 'aggregated_events', $event['payload'] );
+			$events[] = $event['payload'] + array( 'timestamp' => $event['timestamp'] );
+		}
+		$latest = $record['events'][ count( $record['events'] ) - 1 ];
+		if ( ! $legacy ) {
+			return $events[ count( $events ) - 1 ] + array( 'aggregated_events' => $events );
+		}
+
+		// A previous version accepted these names; never overwrite them during upgrade.
+		$body     = $latest['payload'];
+		$metadata = array(
+			'schema_version' => 2,
+			'delivery_id'    => $record['delivery_id'],
+			'window'         => array(
+				'opened_at'     => gmdate( 'Y-m-d\TH:i:s\Z', $record['opened_at'] ),
+				'scheduled_for' => gmdate( 'Y-m-d\TH:i:s\Z', $record['scheduled_for'] ),
+			),
+			'timestamp'      => $latest['timestamp'],
+		);
+		if ( array_key_exists( '_wpwf', $body ) || array_key_exists( 'aggregated_events', $body ) ) {
+			$metadata['schema_version'] = 1;
+			$body                       = $metadata + array( 'payload' => $latest['payload'] );
+		} else {
+			$body['_wpwf'] = $metadata;
+		}
+		$body['aggregated_events'] = $record['events'];
+		return $body;
 	}
 
 	/**

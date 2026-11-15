@@ -6,28 +6,29 @@ sidebar:
 ---
 
 Scheduled `update` events aggregate by default into a fixed 60-second window.
-Version **4.0.0** keeps the latest event fields at the root and adds
-`aggregated_events` plus `_wpwf` delivery metadata. The 60-second window introduced
-in 3.0.0 remains unchanged; 2.x used a five-second initial delay.
-Immediate delivery, its retries, and create/delete/custom actions retain their
-existing behavior. Already queued `wpwf_send_webhook` jobs remain executable with
-the old body; they are not migrated into stacks. Receivers can therefore see both
-formats while old jobs drain.
+Version **4.1.0** keeps the latest event fields at the root, adds `timestamp` and
+`aggregated_events`, and sends delivery metadata in HTTP headers. The fixed
+60-second window remains unchanged. Immediate delivery, its retries, non-update
+actions and legacy opt-out retain their existing format; the framework does not
+add stacking fields or delivery headers on those paths.
 
-## Upgrade from 3.0.0
+## Upgrade from 3.0.0 or 4.0.0
 
-Read `body.id`, `body.entity`, and `body.action` directly, rather than through
-`body.payload`. Event history stays at `body.aggregated_events`; delivery metadata
-moves to `body._wpwf`. Receivers such as n8n can fetch the resource through the
-same root fields used by legacy and immediate notifications.
+**4.1.0 changes the wire format within the 4.x series.** Update consumers before
+upgrading: `_wpwf` is no longer generated, and `aggregated_events[n].payload.id`
+becomes `aggregated_events[n].id`. Read the delivery ID and window from the headers
+shown below. Root `id`, `entity`, `action` and `rest_url` stay in place for n8n.
 
-Unsealed pending stacks adopt the new format when prepared. Previously accepted
-events whose custom fields collide with the two reserved names retain the 3.0.0
-envelope so their data is not lost. Already sealed 3.0.0
-bodies are never rewritten, including on retry, so receivers must temporarily
-accept the old envelope too or drain those deliveries before upgrading. The whole
-JSON body becomes immutable after the first body-filter pass; before that, the
-latest event and history grow within the fixed window. No database migration is needed.
+`timestamp` is now reserved. Rename custom fields using this name or opt out of
+stacking. Previously accepted events with conflicting custom fields retain their
+old format, including when only an earlier history entry conflicts. Already sealed
+3.0.0/4.0.0 JSON bodies are never rewritten. New delivery headers are also added to
+those requests. Drain old stacks first, or temporarily accept both formats.
+A delivery header alone therefore does not identify the body's schema.
+
+Unsealed stacks without collisions adopt the new format. No database migration is
+needed. After the body filter runs for the first attempt, the exact JSON is frozen
+across retries; the latest event and history can change only before sealing.
 
 ## Keep the existing behavior
 
@@ -39,10 +40,12 @@ Configure this consistently on every request and worker that loads the webhook.
 
 ## Window and identity
 
-The first accepted update fixes `opened_at` and `scheduled_for` (60 seconds later).
+The first accepted update fixes the opening time and exclusive cutoff (60 seconds later).
 Updates at seconds 0, 20 and 59 share a stack; one at second 60 opens another.
 A delayed worker does not extend the old window. Execution depends on the site's
-Action Scheduler runner, so `scheduled_for` is a planned time, not an HTTP timestamp.
+Action Scheduler runner, so `wpwf-window-closed-at` is the fixed temporal cutoff,
+not the actual send time. Capacity overflow may stop acceptance earlier and open
+an overlapping window without moving that cutoff.
 
 Stack identity includes destination URL, registered webhook name and configured
 headers, entity type and ID. Numeric ID `42` and string `"42"` match. Different
@@ -61,15 +64,15 @@ Separate windows may be delivered out of order when an older one retries.
 ## Wire format
 
 The latest complete notification remains at the root: `action`, `entity`, `id`,
-`rest_url` and custom fields keep their original paths. `aggregated_events` contains
-every accepted notification, including the latest, with its timestamp. `_wpwf`
-contains delivery metadata. A single-event window uses the same format with one entry.
-No fields from earlier notifications are merged into the latest notification.
+`rest_url` and custom fields keep their original paths. Each event has its own
+`timestamp`, meaning acceptance by this library, not the source's modification time.
+`aggregated_events` contains all accepted event objects, including the latest,
+without `payload` wrappers. A single-event window uses the same format with one entry.
+No fields from earlier events are merged into the latest notification.
 
-`_wpwf` and `aggregated_events` are reserved for stacking. Events using these names
-are rejected visibly before acceptance rather than overwritten; rename those custom
-fields or opt out. Other custom names, including `payload`, `timestamp` and
-`delivery_id`, remain untouched at the root.
+`timestamp` and `aggregated_events` are reserved. New events using either field,
+even with null values, are rejected visibly before acceptance rather than overwritten.
+Other custom fields, including `_wpwf`, `payload` and `delivery_id`, remain untouched.
 
 ```json
 {
@@ -78,55 +81,52 @@ fields or opt out. Other custom names, including `payload`, `timestamp` and
   "id": 42,
   "meta_type": "post",
   "meta_key": "price",
+  "timestamp": "2026-11-15T15:00:20Z",
   "aggregated_events": [
     {
-      "timestamp": "2026-11-15T15:00:00Z",
-      "payload": {
-        "action": "update",
-        "entity": "meta",
-        "id": 42,
-        "meta_type": "post",
-        "meta_key": "title"
-      }
+      "action": "update",
+      "entity": "meta",
+      "id": 42,
+      "meta_type": "post",
+      "meta_key": "title",
+      "timestamp": "2026-11-15T15:00:00Z"
     },
     {
-      "timestamp": "2026-11-15T15:00:20Z",
-      "payload": {
-        "action": "update",
-        "entity": "meta",
-        "id": 42,
-        "meta_type": "post",
-        "meta_key": "price"
-      }
+      "action": "update",
+      "entity": "meta",
+      "id": 42,
+      "meta_type": "post",
+      "meta_key": "price",
+      "timestamp": "2026-11-15T15:00:20Z"
     }
-  ],
-  "_wpwf": {
-    "schema_version": 2,
-    "delivery_id": 12345,
-    "window": {
-      "opened_at": "2026-11-15T15:00:00Z",
-      "scheduled_for": "2026-11-15T15:01:00Z"
-    },
-    "timestamp": "2026-11-15T15:00:20Z"
-  }
+  ]
 }
 ```
 
-- `_wpwf.schema_version`: integer `2`, identifying the root-field contract.
-- `_wpwf.delivery_id`: integer ID of the **first Action Scheduler action** created for
-  this stack. Aggregation keeps that action unchanged. Retries may have new
-  scheduler action IDs but retain this original ID in the body. It is not an
-  entity ID or WordPress event ID. Receivers should scope deduplication by source
-  site and delivery ID, since IDs are not globally unique across installations.
-- `_wpwf.window.opened_at`: acceptance time of the first event.
-- `_wpwf.window.scheduled_for`: initial planned send time and immutable aggregation cutoff.
-- `_wpwf.timestamp`: acceptance time of the latest event.
-- `aggregated_events`: all `{timestamp, payload}` entries, including the latest.
-  Its length gives the event count; there is no redundant count field.
+Delivery headers for this example:
 
-The private persistence key contains a generated token because it must exist
-before scheduling returns an action ID. That key is internal and is never sent
-as `delivery_id`. HTTP headers are not copied into the payload.
+```http
+wpwf-delivery-id: 12345
+wpwf-window-opened-at: 2026-11-15T15:00:00Z
+wpwf-window-closed-at: 2026-11-15T15:01:00Z
+```
+
+- `wpwf-delivery-id`: the original Action Scheduler ID as a header string. It stays
+  unchanged across retries. Deduplicate by source site plus ID; IDs are not globally unique.
+- `wpwf-window-opened-at`: first acceptance time in UTC.
+- `wpwf-window-closed-at`: exclusive temporal cutoff in UTC, fixed at opening plus 60 seconds.
+
+These three headers are derived from durable state on every attempt and applied
+**after** `wpwf_headers`. Case-insensitive duplicates from configured headers or
+filters are replaced. Authentication headers may still refresh per attempt. The
+protected delivery headers are not stored in the aggregation identity.
+
+In n8n, use `$json.body.id` and `$json.headers['wpwf-delivery-id']`. If forwarding or
+archiving only the body, explicitly keep any delivery headers needed for deduplication
+or diagnostics. A body-only signature does not authenticate these headers.
+
+The private storage token is never exposed. The body has no generated `_wpwf`,
+`schema_version`, or delivery ID. The history array length supplies the event count.
 
 ## Payloads and filters
 
@@ -143,7 +143,7 @@ legacy and immediate modes keep their delivery-time enrichment. Historical
 entries are notification contents, not an audit log or reconstructed entity states.
 Upstream WordPress hooks may already suppress events before they reach this queue.
 
-`wpwf_request_body` receives the root event plus additive metadata once, immediately before the
+`wpwf_request_body` receives the root event with timestamp and flat history once, immediately before the
 first attempt. Its identity arguments describe the stack; its payload argument
 is the latest complete event body. Filters must handle this schema or opt out of
 stacking. Ordinary nested JSON objects are exposed as associative PHP arrays for

@@ -167,27 +167,29 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		$requests = $this->get_captured_requests();
 		$this->assertCount( 1, $requests );
 		$body = $requests[0]['body'];
-		$this->assertSame( $ids[0], $body['_wpwf']['delivery_id'] );
-		$this->assertSame( 2, $body['_wpwf']['schema_version'] );
+		$this->assertSame( (string) $ids[0], $requests[0]['headers']['wpwf-delivery-id'] );
+		$this->assertArrayNotHasKey( '_wpwf', $body );
+		$this->assertArrayNotHasKey( 'schema_version', $body );
 		$this->assertSame( 'latest', $body['value'] );
 		$this->assertSame( 'update', $body['action'] );
 		$this->assertSame( 'custom', $body['entity'] );
 		$this->assertSame( 42, $body['id'] );
 		$this->assertArrayNotHasKey( 'payload', $body );
-		$this->assertSame( array( 'first', 'second', 'latest' ), array_column( array_column( $body['aggregated_events'], 'payload' ), 'value' ) );
+		$this->assertSame( array( 'first', 'second', 'latest' ), array_column( $body['aggregated_events'], 'value' ) );
 		$this->assertSame(
 			array_diff_key(
 				$body,
 				array(
-					'_wpwf'             => true,
 					'aggregated_events' => true,
 				)
 			),
-			$body['aggregated_events'][2]['payload']
+			$body['aggregated_events'][2]
 		);
-		$this->assertSame( gmdate( 'Y-m-d\TH:i:s\Z', $opened + 59 ), $body['_wpwf']['timestamp'] );
-		$this->assertSame( gmdate( 'Y-m-d\TH:i:s\Z', $opened ), $body['_wpwf']['window']['opened_at'] );
-		$this->assertSame( gmdate( 'Y-m-d\TH:i:s\Z', $opened + 60 ), $body['_wpwf']['window']['scheduled_for'] );
+		$this->assertSame( gmdate( 'Y-m-d\TH:i:s\Z', $opened + 59 ), $body['timestamp'] );
+		$this->assertSame( gmdate( 'Y-m-d\TH:i:s\Z', $opened ), $body['aggregated_events'][0]['timestamp'] );
+		$this->assertSame( gmdate( 'Y-m-d\TH:i:s\Z', $opened + 20 ), $body['aggregated_events'][1]['timestamp'] );
+		$this->assertSame( gmdate( 'Y-m-d\TH:i:s\Z', $opened ), $requests[0]['headers']['wpwf-window-opened-at'] );
+		$this->assertSame( gmdate( 'Y-m-d\TH:i:s\Z', $opened + 60 ), $requests[0]['headers']['wpwf-window-closed-at'] );
 		$this->assertSame( array(), ( new Stack_Store() )->pending_keys() );
 		$this->assertSame( ActionScheduler_Store::STATUS_COMPLETE, ActionScheduler::store()->get_status( $ids[0] ) );
 	}
@@ -205,7 +207,7 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		$this->run_action( $ids[1] );
 		$requests = $this->get_captured_requests();
 		$this->assertSame( array( 'first', 'next' ), array_column( array_column( $requests, 'body' ), 'value' ) );
-		$this->assertNotSame( $requests[0]['body']['_wpwf']['delivery_id'], $requests[1]['body']['_wpwf']['delivery_id'] );
+		$this->assertNotSame( $requests[0]['headers']['wpwf-delivery-id'], $requests[1]['headers']['wpwf-delivery-id'] );
 	}
 
 	/** Forced early execution cannot shorten the window or replace its public ID. */
@@ -218,7 +220,7 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		$this->assertNotSame( $original, $retry );
 		$this->now += 60;
 		$this->run_action( $retry );
-		$this->assertSame( $original, $this->get_captured_requests()[0]['body']['_wpwf']['delivery_id'] );
+		$this->assertSame( (string) $original, $this->get_captured_requests()[0]['headers']['wpwf-delivery-id'] );
 	}
 
 	/** Failed deliveries freeze JSON, preserve ID and use the configured finite retry budget. */
@@ -244,11 +246,45 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		$requests = $this->get_captured_requests();
 		$this->assertCount( 2, $requests );
 		$this->assertSame( $requests[0]['raw_body'], $requests[1]['raw_body'] );
-		$this->assertSame( $original, $requests[1]['body']['_wpwf']['delivery_id'] );
+		$this->assertSame( (string) $original, $requests[1]['headers']['wpwf-delivery-id'] );
 		$this->assertSame( '1', $requests[1]['headers']['wpwf-retry-count'] );
 		$this->assertSame( 1, $calls );
 		$this->assertSame( array(), $this->pending() );
 		$this->assertSame( array(), ( new Stack_Store() )->pending_keys() );
+	}
+
+	/** Per-attempt filters cannot forge delivery identity or window headers, but auth can refresh. */
+	public function test_delivery_headers_remain_stable_after_header_filters(): void {
+		$this->webhook->webhook_url( $this->get_receiver_webhook_url( 'protected-headers', 'fail' ) )->max_retries( 1 );
+		$calls = 0;
+		add_filter(
+			'wpwf_headers',
+			static function ( array $headers ) use ( &$calls ): array {
+				unset( $headers['wpwf-delivery-id'], $headers['wpwf-window-opened-at'], $headers['wpwf-window-closed-at'] );
+				$headers['WPWF-Delivery-ID']      = 'forged';
+				$headers['WpWf-Window-Opened-At'] = 'forged';
+				$headers['WPWF-WINDOW-CLOSED-AT'] = 'forged';
+				$headers['Authorization']         = 'Bearer attempt-' . ( ++$calls );
+				return $headers;
+			}
+		);
+		$opened = $this->now;
+		$this->emit_update( array( 'value' => 'protected' ) );
+		$id         = $this->pending()[0];
+		$this->now += 60;
+		$this->run_action( $id );
+		$this->now += $this->webhook->calculate_retry_delay( 1 );
+		$this->run_action( $this->pending()[0] );
+		$requests = $this->get_captured_requests();
+		$this->assertCount( 2, $requests );
+		foreach ( $requests as $request ) {
+			$this->assertSame( (string) $id, $request['headers']['wpwf-delivery-id'] );
+			$this->assertSame( gmdate( 'Y-m-d\TH:i:s\Z', $opened ), $request['headers']['wpwf-window-opened-at'] );
+			$this->assertSame( gmdate( 'Y-m-d\TH:i:s\Z', $opened + 60 ), $request['headers']['wpwf-window-closed-at'] );
+		}
+		$this->assertSame( 'Bearer attempt-1', $requests[0]['headers']['authorization'] );
+		$this->assertSame( 'Bearer attempt-2', $requests[1]['headers']['authorization'] );
+		$this->assertSame( $requests[0]['raw_body'], $requests[1]['raw_body'] );
 	}
 
 	/** A producer firing during HTTP must survive acknowledgement of the older window. */
@@ -304,6 +340,10 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		foreach ( $this->get_captured_requests() as $request ) {
 			$this->assertSame( 'now', $request['body']['value'] );
 			$this->assertArrayNotHasKey( 'aggregated_events', $request['body'] );
+			$this->assertArrayNotHasKey( 'timestamp', $request['body'] );
+			$this->assertArrayNotHasKey( 'wpwf-delivery-id', $request['headers'] );
+			$this->assertArrayNotHasKey( 'wpwf-window-opened-at', $request['headers'] );
+			$this->assertArrayNotHasKey( 'wpwf-window-closed-at', $request['headers'] );
 		}
 	}
 
@@ -368,7 +408,7 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		}
 		$requests = $this->get_captured_requests();
 		$this->assertCount( 4, $requests );
-		$this->assertSame( array( 'a', 'b' ), array_column( array_column( $requests[0]['body']['aggregated_events'], 'payload' ), 'meta_key' ) );
+		$this->assertSame( array( 'a', 'b' ), array_column( $requests[0]['body']['aggregated_events'], 'meta_key' ) );
 	}
 
 	// phpcs:enable WordPress.DB.SlowDBQuery.slow_db_query_meta_key
@@ -424,7 +464,7 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		$this->assertSame( 99, $requests[0]['body']['sequence'] );
 		$this->assertCount( 1, $requests[1]['body']['aggregated_events'] );
 		$this->assertSame( 100, $requests[1]['body']['sequence'] );
-		$this->assertNotSame( $requests[0]['body']['_wpwf']['delivery_id'], $requests[1]['body']['_wpwf']['delivery_id'] );
+		$this->assertNotSame( $requests[0]['headers']['wpwf-delivery-id'], $requests[1]['headers']['wpwf-delivery-id'] );
 	}
 
 	/** An oversized first event leaves no orphan record or action. */
@@ -440,7 +480,7 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 	}
 	/** Reserved additive fields must fail visibly rather than overwrite consumer data. */
 	public function test_reserved_fields_are_rejected_without_accepting_work(): void {
-		foreach ( array( '_wpwf', 'aggregated_events' ) as $field ) {
+		foreach ( array( 'timestamp', 'aggregated_events' ) as $field ) {
 			try {
 				$this->emit_update( array( $field => null ) );
 				$this->fail( 'Expected a reserved field error.' );
@@ -483,6 +523,40 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		$this->assertSame( $record['events'], $body['aggregated_events'] );
 	}
 
+	/** An older history entry's custom timestamp must survive even when the latest event has none. */
+	public function test_pre_upgrade_timestamp_in_history_preserves_old_format(): void {
+		$this->emit_update( array( 'value' => 'old' ) );
+		$store  = new Stack_Store();
+		$key    = array_values( $store->pending_keys() )[0];
+		$record = $store->get( $key );
+		$record['events'][0]['payload']['timestamp'] = 'consumer-time';
+		$store->put( $key, $record );
+		$this->emit_update( array( 'value' => 'new' ) );
+		$this->now += 60;
+		$this->run_action( $this->pending()[0] );
+		$body = $this->get_captured_requests()[0]['body'];
+		$this->assertSame( 2, $body['_wpwf']['schema_version'] );
+		$this->assertSame( 'new', $body['value'] );
+		$this->assertSame( 'consumer-time', $body['aggregated_events'][0]['payload']['timestamp'] );
+	}
+
+	/** A sealed 4.0 body is immutable too, while delivery metadata is added in headers. */
+	public function test_previously_sealed_root_body_is_not_rewritten(): void {
+		$this->emit_update( array( 'value' => 'old' ) );
+		$id             = $this->pending()[0];
+		$store          = new Stack_Store();
+		$key            = array_values( $store->pending_keys() )[0];
+		$record         = $store->get( $key );
+		$json           = '{"id":42,"entity":"custom","action":"update","_wpwf":{"schema_version":2},"aggregated_events":[{"timestamp":"2026-11-16T10:00:00Z","payload":{"id":42}}]}';
+		$record['body'] = $json;
+		$store->put( $key, $record );
+		$this->now += 60;
+		$this->run_action( $id );
+		$request = $this->get_captured_requests()[0];
+		$this->assertSame( $json, $request['raw_body'] );
+		$this->assertSame( (string) $id, $request['headers']['wpwf-delivery-id'] );
+	}
+
 	/** Persist arbitrary custom JSON shapes without turning empty objects into lists. */
 	public function test_custom_payload_shapes_and_metadata_names_survive_storage(): void {
 		$payload = array(
@@ -491,7 +565,7 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 			'list'           => array( 1, 2 ),
 			'object'         => (object) array(),
 			'numeric_object' => (object) array( '0' => 'zero' ),
-			'timestamp'      => 'custom',
+			'_wpwf'          => 'custom',
 			'payload'        => array( 'custom' ),
 			'delivery_id'    => 'custom-id',
 		);
@@ -504,7 +578,7 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		$this->assertSame( 'zero', $body->numeric_object->{'0'} );
 		$this->assertNull( $body->deleted );
 		$this->assertSame( $payload['unicode'], $body->unicode );
-		$this->assertSame( 'custom', $body->timestamp );
+		$this->assertSame( 'custom', $body->_wpwf );
 		$this->assertSame( array( 'custom' ), $body->payload );
 		$this->assertSame( 'custom-id', $body->delivery_id );
 		$this->assertSame(
@@ -512,12 +586,11 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 				array_diff_key(
 					(array) $body,
 					array(
-						'_wpwf'             => true,
 						'aggregated_events' => true,
 					)
 				)
 			),
-			wp_json_encode( $body->aggregated_events[0]->payload )
+			wp_json_encode( $body->aggregated_events[0] )
 		);
 	}
 
@@ -828,7 +901,7 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		$this->run_action( $this->pending()[0] );
 		$request = $this->get_captured_requests()[0];
 		$this->assertSame( 'retained', $request['body']['value'] );
-		$this->assertSame( $delivery_id, $request['body']['_wpwf']['delivery_id'] );
+		$this->assertSame( (string) $delivery_id, $request['headers']['wpwf-delivery-id'] );
 	}
 
 	/** A rejected retry in a failure callback cannot escape the runner or erase durable state. */
@@ -905,7 +978,7 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		$this->now += 60;
 		$this->run_action( $this->pending()[0] );
 		$body = $this->get_captured_requests()[0]['body'];
-		$this->assertSame( $expected, array_column( array_column( $body['aggregated_events'], 'payload' ), 'value' ) );
+		$this->assertSame( $expected, array_column( $body['aggregated_events'], 'value' ) );
 		$this->assertSame( end( $expected ), $body['value'] );
 	}
 	/**
