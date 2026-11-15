@@ -331,7 +331,7 @@ class Dispatcher {
 	/**
 	 * Apply the request-body filter once, then persist its exact JSON for all retries.
 	 *
-	 * @param array<string,mixed> $body Stack envelope.
+	 * @param array<string,mixed> $body Root event fields with additive stacking metadata.
 	 * @param string              $entity Entity type.
 	 * @param int|string          $id Entity ID.
 	 * @param array<string,mixed> $payload Latest event body.

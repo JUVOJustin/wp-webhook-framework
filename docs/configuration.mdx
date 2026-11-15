@@ -43,7 +43,7 @@ $post->webhook_url( 'https://api.example.com/posts' )
 
 When `Delivery_Mode::IMMEDIATE` fails, retries still run through Action Scheduler using the configured backoff logic. Immediate attempts and their retries never stack.
 
-Scheduled updates use the [stacking envelope](./update-stacking.mdx) by default.
+Scheduled updates use the [root event plus stacking metadata](./update-stacking.mdx) by default.
 Use `$webhook->stack_updates( false )` to preserve the flat body and first-pending
 payload behavior. Default-on stacking was introduced in 3.0.0. Unsupported database
 versions and database-router subclasses automatically retain legacy dispatch; see

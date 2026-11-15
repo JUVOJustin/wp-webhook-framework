@@ -67,6 +67,9 @@ final class Update_Stack {
 	 * @throws WP_Exception If the stack cannot accept the event.
 	 */
 	public function schedule( string $url, string $entity, int|string $id, array $payload, array $headers ): void {
+		if ( array_key_exists( '_wpwf', $payload ) || array_key_exists( 'aggregated_events', $payload ) ) {
+			throw new WP_Exception( 'webhook_stack_reserved_field' );
+		}
 		ksort( $headers );
 		$identity = hash( 'sha256', (string) wp_json_encode( array( $url, $headers, $entity, (string) $id, 'meta' === $entity ? ( $payload['meta_type'] ?? '' ) : '' ) ) );
 		$this->store->locked(
@@ -213,19 +216,26 @@ final class Update_Stack {
 								throw new WP_Exception( 'webhook_stack_attempts_exhausted' );
 							}
 							if ( null === $record['body'] ) {
-								$latest         = $record['events'][ count( $record['events'] ) - 1 ];
-								$body           = array(
-									'schema_version'    => 1,
-									'delivery_id'       => $record['delivery_id'],
-									'window'            => array(
+								$latest   = $record['events'][ count( $record['events'] ) - 1 ];
+								$body     = $latest['payload'];
+								$metadata = array(
+									'schema_version' => 2,
+									'delivery_id'    => $record['delivery_id'],
+									'window'         => array(
 										'opened_at'     => gmdate( 'Y-m-d\TH:i:s\Z', $record['opened_at'] ),
 										'scheduled_for' => gmdate( 'Y-m-d\TH:i:s\Z', $record['scheduled_for'] ),
 									),
-									'timestamp'         => $latest['timestamp'],
-									'payload'           => $latest['payload'],
-									'aggregated_events' => $record['events'],
+									'timestamp'      => $latest['timestamp'],
 								);
-								$record['body'] = $this->dispatcher->seal_stacked_body( $body, $record['entity'], $record['id'], $latest['payload'], $webhook );
+								if ( array_key_exists( '_wpwf', $body ) || array_key_exists( 'aggregated_events', $body ) ) {
+									// Only pre-upgrade records can collide: preserve their accepted envelope contract.
+									$metadata['schema_version'] = 1;
+									$body                       = $metadata + array( 'payload' => $latest['payload'] );
+								} else {
+									$body['_wpwf'] = $metadata;
+								}
+								$body['aggregated_events'] = $record['events'];
+								$record['body']            = $this->dispatcher->seal_stacked_body( $body, $record['entity'], $record['id'], $latest['payload'], $webhook );
 							}
 							// Successful preparation replaces the fallback delay with configured backoff.
 							$record['due'] = $this->now() + $webhook->calculate_retry_delay( $record['attempt'] );

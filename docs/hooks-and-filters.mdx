@@ -118,13 +118,13 @@ add_filter( 'wpwf_payload', function ( array $payload, string $entity, int|strin
 Filter the webhook request body right before sending.
 
 The framework enriches `rest_url` when available. For stacked updates this filter
-receives the [stacking envelope](./update-stacking.mdx), runs once when sealing the
+receives the [stacking format](./update-stacking.mdx), runs once when sealing the
 first attempt, and its resulting JSON is retained for retries. The payload argument
 is the latest complete event object. Header filters still run per attempt.
 Legacy/immediate calls retain their flat body and per-attempt body filtering.
 
-The following example applies only to flat bodies; stacked event fields are captured
-at acceptance and belong in `payload` and `aggregated_events` rather than at the root.
+Event fields remain at the root in both modes. For stacked updates, enrich each
+event through `wpwf_payload` if the extra fields should also appear in the history.
 
 **Parameters:**
 - `$body` (array<string,mixed>) - The full webhook body
@@ -138,9 +138,6 @@ at acceptance and belong in `payload` and `aggregated_events` rather than at the
 
 ```php
 add_filter( 'wpwf_request_body', function ( array $body, string $action, string $entity, int|string $id ): array {
-    if ( isset( $body['schema_version'] ) ) {
-        return $body;
-    }
     if ( isset( $body['rest_url'] ) ) {
         return $body;
     }
@@ -341,8 +338,8 @@ add_filter( 'wpwf_retry_delay', fn() => 300 );
 
 ## Payload Structure
 
-Legacy/immediate payload (post); scheduled updates wrap these event bodies in the
-[stacking envelope](./update-stacking.mdx):
+Event fields (post) remain at the root in every delivery mode. Scheduled updates
+add `aggregated_events` and `_wpwf`; see the [stacking format](./update-stacking.mdx):
 
 ```json
 {

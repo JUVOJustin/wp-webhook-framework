@@ -167,14 +167,27 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		$requests = $this->get_captured_requests();
 		$this->assertCount( 1, $requests );
 		$body = $requests[0]['body'];
-		$this->assertSame( $ids[0], $body['delivery_id'] );
-		$this->assertSame( 1, $body['schema_version'] );
-		$this->assertSame( 'latest', $body['payload']['value'] );
+		$this->assertSame( $ids[0], $body['_wpwf']['delivery_id'] );
+		$this->assertSame( 2, $body['_wpwf']['schema_version'] );
+		$this->assertSame( 'latest', $body['value'] );
+		$this->assertSame( 'update', $body['action'] );
+		$this->assertSame( 'custom', $body['entity'] );
+		$this->assertSame( 42, $body['id'] );
+		$this->assertArrayNotHasKey( 'payload', $body );
 		$this->assertSame( array( 'first', 'second', 'latest' ), array_column( array_column( $body['aggregated_events'], 'payload' ), 'value' ) );
-		$this->assertSame( $body['payload'], $body['aggregated_events'][2]['payload'] );
-		$this->assertSame( gmdate( 'Y-m-d\TH:i:s\Z', $opened + 59 ), $body['timestamp'] );
-		$this->assertSame( gmdate( 'Y-m-d\TH:i:s\Z', $opened ), $body['window']['opened_at'] );
-		$this->assertSame( gmdate( 'Y-m-d\TH:i:s\Z', $opened + 60 ), $body['window']['scheduled_for'] );
+		$this->assertSame(
+			array_diff_key(
+				$body,
+				array(
+					'_wpwf'             => true,
+					'aggregated_events' => true,
+				)
+			),
+			$body['aggregated_events'][2]['payload']
+		);
+		$this->assertSame( gmdate( 'Y-m-d\TH:i:s\Z', $opened + 59 ), $body['_wpwf']['timestamp'] );
+		$this->assertSame( gmdate( 'Y-m-d\TH:i:s\Z', $opened ), $body['_wpwf']['window']['opened_at'] );
+		$this->assertSame( gmdate( 'Y-m-d\TH:i:s\Z', $opened + 60 ), $body['_wpwf']['window']['scheduled_for'] );
 		$this->assertSame( array(), ( new Stack_Store() )->pending_keys() );
 		$this->assertSame( ActionScheduler_Store::STATUS_COMPLETE, ActionScheduler::store()->get_status( $ids[0] ) );
 	}
@@ -191,8 +204,8 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		$this->now += 60;
 		$this->run_action( $ids[1] );
 		$requests = $this->get_captured_requests();
-		$this->assertSame( array( 'first', 'next' ), array_column( array_column( array_column( $requests, 'body' ), 'payload' ), 'value' ) );
-		$this->assertNotSame( $requests[0]['body']['delivery_id'], $requests[1]['body']['delivery_id'] );
+		$this->assertSame( array( 'first', 'next' ), array_column( array_column( $requests, 'body' ), 'value' ) );
+		$this->assertNotSame( $requests[0]['body']['_wpwf']['delivery_id'], $requests[1]['body']['_wpwf']['delivery_id'] );
 	}
 
 	/** Forced early execution cannot shorten the window or replace its public ID. */
@@ -205,7 +218,7 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		$this->assertNotSame( $original, $retry );
 		$this->now += 60;
 		$this->run_action( $retry );
-		$this->assertSame( $original, $this->get_captured_requests()[0]['body']['delivery_id'] );
+		$this->assertSame( $original, $this->get_captured_requests()[0]['body']['_wpwf']['delivery_id'] );
 	}
 
 	/** Failed deliveries freeze JSON, preserve ID and use the configured finite retry budget. */
@@ -231,7 +244,7 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		$requests = $this->get_captured_requests();
 		$this->assertCount( 2, $requests );
 		$this->assertSame( $requests[0]['raw_body'], $requests[1]['raw_body'] );
-		$this->assertSame( $original, $requests[1]['body']['delivery_id'] );
+		$this->assertSame( $original, $requests[1]['body']['_wpwf']['delivery_id'] );
 		$this->assertSame( '1', $requests[1]['headers']['wpwf-retry-count'] );
 		$this->assertSame( 1, $calls );
 		$this->assertSame( array(), $this->pending() );
@@ -254,7 +267,7 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		$this->assertCount( 1, $this->pending() );
 		$this->now += 60;
 		$this->run_action( $this->pending()[0] );
-		$this->assertSame( 'during-http', $this->get_captured_requests()[1]['body']['payload']['value'] );
+		$this->assertSame( 'during-http', $this->get_captured_requests()[1]['body']['value'] );
 	}
 
 	/** Opting out retains the existing first-pending payload and flat request body. */
@@ -388,7 +401,7 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		$this->assertSame( $ids[0], $store->get( $key )['delivery_id'] );
 		$this->now += 60;
 		$this->run_action( $ids[0] );
-		$this->assertSame( 'recoverable', $this->get_captured_requests()[0]['body']['payload']['value'] );
+		$this->assertSame( 'recoverable', $this->get_captured_requests()[0]['body']['value'] );
 	}
 
 	/** A full window keeps its history and overflow starts another without losing the newest event. */
@@ -408,10 +421,10 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		$this->run_action( $ids[1] );
 		$requests = $this->get_captured_requests();
 		$this->assertCount( 100, $requests[0]['body']['aggregated_events'] );
-		$this->assertSame( 99, $requests[0]['body']['payload']['sequence'] );
+		$this->assertSame( 99, $requests[0]['body']['sequence'] );
 		$this->assertCount( 1, $requests[1]['body']['aggregated_events'] );
-		$this->assertSame( 100, $requests[1]['body']['payload']['sequence'] );
-		$this->assertNotSame( $requests[0]['body']['delivery_id'], $requests[1]['body']['delivery_id'] );
+		$this->assertSame( 100, $requests[1]['body']['sequence'] );
+		$this->assertNotSame( $requests[0]['body']['_wpwf']['delivery_id'], $requests[1]['body']['_wpwf']['delivery_id'] );
 	}
 
 	/** An oversized first event leaves no orphan record or action. */
@@ -425,29 +438,87 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		$this->assertSame( array(), ( new Stack_Store() )->pending_keys() );
 		$this->assertSame( array(), $this->pending() );
 	}
+	/** Reserved additive fields must fail visibly rather than overwrite consumer data. */
+	public function test_reserved_fields_are_rejected_without_accepting_work(): void {
+		foreach ( array( '_wpwf', 'aggregated_events' ) as $field ) {
+			try {
+				$this->emit_update( array( $field => null ) );
+				$this->fail( 'Expected a reserved field error.' );
+			} catch ( WP_Exception $error ) {
+				$this->assertSame( 'webhook_stack_reserved_field', $error->getMessage() );
+			}
+		}
+		$this->assertSame( array(), ( new Stack_Store() )->pending_keys() );
+		$this->assertSame( array(), $this->pending() );
+	}
+
+	/** A body sealed by 3.0.0 keeps its exact bytes during an upgrade. */
+	public function test_previously_sealed_envelope_is_not_rewritten(): void {
+		$this->emit_update( array( 'value' => 'old' ) );
+		$id             = $this->pending()[0];
+		$store          = new Stack_Store();
+		$key            = array_values( $store->pending_keys() )[0];
+		$record         = $store->get( $key );
+		$json           = '{"schema_version":1,"delivery_id":' . $id . ',"payload":{"action":"update","entity":"custom","id":42,"value":"old"}}';
+		$record['body'] = $json;
+		$store->put( $key, $record );
+		$this->now += 60;
+		$this->run_action( $id );
+		$this->assertSame( $json, $this->get_captured_requests()[0]['raw_body'] );
+	}
+
+	/** Accepted pre-upgrade collisions retain their old envelope instead of losing event data. */
+	public function test_pre_upgrade_reserved_fields_keep_the_accepted_contract(): void {
+		$this->emit_update( array( 'value' => 'old' ) );
+		$store  = new Stack_Store();
+		$key    = array_values( $store->pending_keys() )[0];
+		$record = $store->get( $key );
+		$record['events'][0]['payload']['aggregated_events'] = 'consumer-data';
+		$store->put( $key, $record );
+		$this->now += 60;
+		$this->run_action( $this->pending()[0] );
+		$body = $this->get_captured_requests()[0]['body'];
+		$this->assertSame( 1, $body['schema_version'] );
+		$this->assertSame( 'consumer-data', $body['payload']['aggregated_events'] );
+		$this->assertSame( $record['events'], $body['aggregated_events'] );
+	}
+
 	/** Persist arbitrary custom JSON shapes without turning empty objects into lists. */
 	public function test_custom_payload_shapes_and_metadata_names_survive_storage(): void {
 		$payload = array(
-			'deleted'           => null,
-			'unicode'           => 'Grüße 世界',
-			'list'              => array( 1, 2 ),
-			'object'            => (object) array(),
-			'numeric_object'    => (object) array( '0' => 'zero' ),
-			'timestamp'         => 'custom',
-			'aggregated_events' => array( 'custom' ),
+			'deleted'        => null,
+			'unicode'        => 'Grüße 世界',
+			'list'           => array( 1, 2 ),
+			'object'         => (object) array(),
+			'numeric_object' => (object) array( '0' => 'zero' ),
+			'timestamp'      => 'custom',
+			'payload'        => array( 'custom' ),
+			'delivery_id'    => 'custom-id',
 		);
 		$this->emit_update( $payload );
 		$this->now += 60;
 		$this->run_action( $this->pending()[0] );
 		$body = json_decode( $this->get_captured_requests()[0]['raw_body'] );
-		$this->assertInstanceOf( stdClass::class, $body->payload->object );
-		$this->assertInstanceOf( stdClass::class, $body->payload->numeric_object );
-		$this->assertSame( 'zero', $body->payload->numeric_object->{'0'} );
-		$this->assertNull( $body->payload->deleted );
-		$this->assertSame( $payload['unicode'], $body->payload->unicode );
-		$this->assertSame( 'custom', $body->payload->timestamp );
-		$this->assertSame( array( 'custom' ), $body->payload->aggregated_events );
-		$this->assertSame( wp_json_encode( $body->payload ), wp_json_encode( $body->aggregated_events[0]->payload ) );
+		$this->assertInstanceOf( stdClass::class, $body->object );
+		$this->assertInstanceOf( stdClass::class, $body->numeric_object );
+		$this->assertSame( 'zero', $body->numeric_object->{'0'} );
+		$this->assertNull( $body->deleted );
+		$this->assertSame( $payload['unicode'], $body->unicode );
+		$this->assertSame( 'custom', $body->timestamp );
+		$this->assertSame( array( 'custom' ), $body->payload );
+		$this->assertSame( 'custom-id', $body->delivery_id );
+		$this->assertSame(
+			wp_json_encode(
+				array_diff_key(
+					(array) $body,
+					array(
+						'_wpwf'             => true,
+						'aggregated_events' => true,
+					)
+				)
+			),
+			wp_json_encode( $body->aggregated_events[0]->payload )
+		);
 	}
 
 	/** Recovery pages beyond its first 100 records and does not confuse its cursor with a stack. */
@@ -494,7 +565,7 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		$this->assertSame( 'old-job', $this->get_captured_requests()[0]['body']['value'] );
 		$this->now += 60;
 		$this->run_action( $this->pending()[0] );
-		$this->assertSame( 'new-stack', $this->get_captured_requests()[1]['body']['payload']['value'] );
+		$this->assertSame( 'new-stack', $this->get_captured_requests()[1]['body']['value'] );
 	}
 
 	/** Derived fields are captured on acceptance even if the entity later disappears. */
@@ -505,8 +576,8 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		$this->now += 60;
 		$this->run_action( $this->pending()[0] );
 		$body = $this->get_captured_requests()[0]['body'];
-		$this->assertSame( 'post', $body['payload']['post_type'] );
-		$this->assertStringContainsString( '/wp/v2/posts/' . $post_id, $body['payload']['rest_url'] );
+		$this->assertSame( 'post', $body['post_type'] );
+		$this->assertStringContainsString( '/wp/v2/posts/' . $post_id, $body['rest_url'] );
 	}
 
 	/** Blocking after enqueue prevents later sends and cleans up terminal state. */
@@ -562,8 +633,8 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 			$this->run_action( $id );
 		}
 		$requests = $this->get_captured_requests();
-		$this->assertSame( str_repeat( 'a', 140000 ), $requests[0]['body']['payload']['large'] );
-		$this->assertSame( str_repeat( 'b', 140000 ), $requests[1]['body']['payload']['large'] );
+		$this->assertSame( str_repeat( 'a', 140000 ), $requests[0]['body']['large'] );
+		$this->assertSame( str_repeat( 'b', 140000 ), $requests[1]['body']['large'] );
 	}
 
 	/** Real meta entity-mode saves can exceed the per-window limit without losing notifications. */
@@ -618,13 +689,13 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		add_filter(
 			'wpwf_request_body',
 			static function ( array $body ): array {
-				$body['payload']['email_copy'] = $body['payload']['billing']['email'];
+				$body['email_copy'] = $body['billing']['email'];
 				return $body;
 			}
 		);
 		$this->now += 60;
 		$this->run_action( $this->pending()[0] );
-		$this->assertSame( 'test@example.com', $this->get_captured_requests()[0]['body']['payload']['email_copy'] );
+		$this->assertSame( 'test@example.com', $this->get_captured_requests()[0]['body']['email_copy'] );
 	}
 
 	/** Exceptions in notification listeners cannot cancel a retryable HTTP failure. */
@@ -756,8 +827,8 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		$this->now += 60;
 		$this->run_action( $this->pending()[0] );
 		$request = $this->get_captured_requests()[0];
-		$this->assertSame( 'retained', $request['body']['payload']['value'] );
-		$this->assertSame( $delivery_id, $request['body']['delivery_id'] );
+		$this->assertSame( 'retained', $request['body']['value'] );
+		$this->assertSame( $delivery_id, $request['body']['_wpwf']['delivery_id'] );
 	}
 
 	/** A rejected retry in a failure callback cannot escape the runner or erase durable state. */
@@ -835,7 +906,7 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		$this->run_action( $this->pending()[0] );
 		$body = $this->get_captured_requests()[0]['body'];
 		$this->assertSame( $expected, array_column( array_column( $body['aggregated_events'], 'payload' ), 'value' ) );
-		$this->assertSame( end( $expected ), $body['payload']['value'] );
+		$this->assertSame( end( $expected ), $body['value'] );
 	}
 	/**
 	 * Recovery is armed before the outer event is accepted; its nested event therefore comes first.
