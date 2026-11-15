@@ -47,7 +47,7 @@ class Dispatcher {
 		$payload = $dispatch_data['payload'];
 
 		$webhook = Webhook_Registry::instance()->get( (string) ( $headers['wpwf-webhook-name'] ?? '' ) );
-		if ( 'update' === $action && null !== $webhook && $webhook->get_stack_updates() ) {
+		if ( 'update' === $action && null !== $webhook && $webhook->get_stack_updates() && Stack_Store::is_supported() ) {
 			$body = array_merge(
 				$this->prepare_delivery_payload( $entity, $id, $payload ),
 				array(
@@ -365,7 +365,13 @@ class Dispatcher {
 		}
 		$response = $this->perform_request( $url, $entity, $id, $json, $headers, $webhook );
 		if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
-			$this->trigger_webhook_failure( $url, $response, $webhook );
+			try {
+				$this->trigger_webhook_failure( $url, $response, $webhook );
+			} catch ( \Throwable $error ) {
+				// Listener errors must not turn a retryable HTTP failure into terminal cleanup.
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- The third argument preserves the cause; only the literal error code is the public message.
+				throw new WP_Exception( 'webhook_delivery_failed', 0, $error );
+			}
 		}
 		Failure::create_fresh()->save( $url );
 		do_action( 'wpwf_webhook_success', $url, json_decode( $json, true ), $response, $webhook );

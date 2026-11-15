@@ -45,7 +45,9 @@ When `Delivery_Mode::IMMEDIATE` fails, retries still run through Action Schedule
 
 Scheduled updates use the [stacking envelope](./update-stacking.mdx) by default.
 Use `$webhook->stack_updates( false )` to preserve the flat body and first-pending
-payload behavior. Default-on stacking is an unreleased major-version change.
+payload behavior. Default-on stacking is an unreleased major-version change. Unsupported database
+versions and database-router subclasses automatically retain legacy dispatch; see
+[database requirements](./update-stacking.mdx).
 
 ### Meta Emission Modes
 

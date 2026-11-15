@@ -75,15 +75,24 @@ final class Update_Stack {
 				$now    = $this->now();
 				$key    = $this->store->latest_key( $identity );
 				$record = null === $key ? null : $this->store->get( $key );
-				if ( null === $record || null !== $record['body'] || $record['scheduled_for'] <= $now ) {
-					// This private storage token exists before enqueue; the public ID is the first action ID.
+				$event  = array(
+					'timestamp' => gmdate( 'Y-m-d\TH:i:s\Z', $now ),
+					'payload'   => $payload,
+				);
+				if ( null !== $record && null === $record['body'] && $record['scheduled_for'] > $now ) {
+					$record['events'][] = $event;
+				} else {
+					$record = null;
+				}
+				if ( null === $record || ! $this->fits( $record ) ) {
+					// Overflow starts an additional window; the full window and its deadline remain intact.
 					$key    = $identity . ':' . wp_generate_uuid4();
 					$record = array(
 						'url'           => $url,
 						'entity'        => $entity,
 						'id'            => $id,
 						'headers'       => $headers,
-						'events'        => array(),
+						'events'        => array( $event ),
 						'opened_at'     => $now,
 						'scheduled_for' => $now + 60,
 						'due'           => $now + 60,
@@ -91,19 +100,33 @@ final class Update_Stack {
 						'delivery_id'   => 0,
 						'body'          => null,
 					);
+					if ( ! $this->fits( $record ) ) {
+						throw new WP_Exception( 'webhook_stack_capacity_exceeded' );
+					}
 				}
-				$record['events'][] = array(
-					'timestamp' => gmdate( 'Y-m-d\TH:i:s\Z', $now ),
-					'payload'   => $payload,
+				// Recovery cannot retire between arming its next pass and persisting accepted work.
+				$this->store->locked(
+					'recovery',
+					function () use ( $key, $record ): void {
+						$this->ensure_recovery_action();
+						$this->store->put( $key, $record );
+					}
 				);
-				$json               = wp_json_encode( $record );
-				if ( false === $json || self::MAX_EVENTS < count( $record['events'] ) || self::MAX_BYTES < strlen( $json ) ) {
-					throw new WP_Exception( 'webhook_stack_capacity_exceeded' );
-				}
-				$this->store->put( $key, $record );
 				$this->enqueue( $key );
 			}
 		);
+	}
+
+	/**
+	 * Bound individual records without truncating events already accepted.
+	 *
+	 * @param array<string,mixed> $record Candidate window.
+	 * @phpstan-param StackRecord $record
+	 * @return bool
+	 */
+	private function fits( array $record ): bool {
+		$json = wp_json_encode( $record );
+		return false !== $json && self::MAX_EVENTS >= count( $record['events'] ) && self::MAX_BYTES >= strlen( $json );
 	}
 
 	/**
@@ -128,7 +151,7 @@ final class Update_Stack {
 			return;
 		}
 		$args      = array( 'key' => $key );
-		$group     = 'wpwf-stack-' . hash( 'sha256', $key );
+		$group     = 'wpwf-stacks';
 		$ids       = as_get_scheduled_actions(
 			array(
 				'hook'     => self::HOOK,
@@ -141,13 +164,17 @@ final class Update_Stack {
 			),
 			'ids'
 		);
-		$action_id = empty( $ids ) ? as_schedule_single_action( max( $this->now(), $record['due'] ), self::HOOK, $args, $group, true ) : (int) reset( $ids );
+		$action_id = empty( $ids ) ? as_schedule_single_action( max( $this->now(), $record['due'] ), self::HOOK, $args, $group ) : (int) reset( $ids );
 		if ( 0 === $action_id ) {
 			throw new WP_Exception( 'webhook_stack_schedule_failed' );
 		}
 		if ( 0 === $record['delivery_id'] ) {
-			$record['delivery_id'] = $action_id;
-			$this->store->put( $key, $record );
+			// Scheduler storage hooks may emit another event in this same PHP request.
+			$record = $this->store->get( $key );
+			if ( null !== $record && 0 === $record['delivery_id'] ) {
+				$record['delivery_id'] = $action_id;
+				$this->store->put( $key, $record );
+			}
 		}
 	}
 
@@ -258,7 +285,7 @@ final class Update_Stack {
 	}
 
 	/**
-	 * Schedule retries after Action Scheduler releases its running uniqueness slot.
+	 * Schedule retries after Action Scheduler records the preceding attempt as finished.
 	 *
 	 * @param int $action_id Finished scheduler attempt.
 	 */
@@ -266,39 +293,92 @@ final class Update_Stack {
 		if ( empty( $this->processed_keys ) ) {
 			return;
 		}
-		$action = ActionScheduler::store()->fetch_action( $action_id );
-		$key    = (string) ( $action->get_args()['key'] ?? '' );
-		if ( self::HOOK !== $action->get_hook() || ! isset( $this->processed_keys[ $key ] ) ) {
-			return;
-		}
-		unset( $this->processed_keys[ $key ] );
-		$this->store->locked( $this->identity( $key ), fn() => $this->enqueue( $key ) );
-	}
-
-	/** Keep a bounded recovery pass scheduled while this framework is registered. */
-	public function register_recovery(): void {
-		if ( function_exists( 'as_has_scheduled_action' ) && ActionScheduler::is_initialized() && ! as_has_scheduled_action( self::RECOVERY_HOOK, array(), 'wpwf' ) ) {
-			// @phpstan-ignore booleanNot.alwaysTrue (Another process can enqueue between these database reads.)
-			if ( 0 === as_schedule_recurring_action( time() + 60, 60, self::RECOVERY_HOOK, array(), 'wpwf', true ) && ! as_has_scheduled_action( self::RECOVERY_HOOK, array(), 'wpwf' ) ) {
-				wp_trigger_error( __METHOD__, 'webhook_stack_recovery_schedule_failed' );
+		try {
+			$action = ActionScheduler::store()->fetch_action( $action_id );
+			$key    = (string) ( $action->get_args()['key'] ?? '' );
+			if ( self::HOOK !== $action->get_hook() || ! isset( $this->processed_keys[ $key ] ) ) {
+				return;
 			}
+			unset( $this->processed_keys[ $key ] );
+			$this->store->locked( $this->identity( $key ), fn() => $this->enqueue( $key ) );
+		} catch ( Throwable $error ) {
+			// wp_trigger_error() can itself throw under the scheduler's error handler and abort its batch.
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Operational failure must be visible without throwing from a completion callback.
+			error_log( 'WPWF stack recovery deferred: ' . $error->getMessage() );
 		}
 	}
 
-	/** Visit at most 100 surviving stacks; a cursor prevents a backlog starving newer keys. */
+	/**
+	 * Restore a recovery pass killed before it could arm its successor.
+	 *
+	 * @param int $action_id Action marked failed by the runner or timeout cleaner.
+	 */
+	public function after_recovery_failure( int $action_id ): void {
+		try {
+			if ( self::RECOVERY_HOOK !== ActionScheduler::store()->fetch_action( $action_id )->get_hook() ) {
+				return;
+			}
+			$this->store->locked(
+				'recovery',
+				function (): void {
+					if ( ! empty( $this->store->pending_keys() ) ) {
+						$this->ensure_recovery_action();
+					}
+				}
+			);
+		} catch ( Throwable $error ) {
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Failure hooks must not abort the scheduler cleanup batch.
+			error_log( 'WPWF recovery restart failed: ' . $error->getMessage() );
+		}
+	}
+
+	/**
+	 * Arm one future pass while holding the recovery mutex; running passes do not count.
+	 *
+	 * @throws WP_Exception If recovery cannot be scheduled before accepting work.
+	 */
+	private function ensure_recovery_action(): void {
+		$pending = as_get_scheduled_actions(
+			array(
+				'hook'     => self::RECOVERY_HOOK,
+				'group'    => 'wpwf',
+				'status'   => ActionScheduler_Store::STATUS_PENDING,
+				'per_page' => 1,
+			),
+			'ids'
+		);
+		if ( empty( $pending ) && 0 === as_schedule_single_action( time() + 300, self::RECOVERY_HOOK, array(), 'wpwf' ) ) {
+			throw new WP_Exception( 'webhook_stack_recovery_schedule_failed' );
+		}
+	}
+
+	/** Recover at most 100 records per pass and retire when no accepted work remains. */
 	public function recover(): void {
 		$this->store->locked(
-			'recovery',
+			'recovery-sweep',
 			function (): void {
+				// Schedule the successor first so interruption of this pass does not strand records.
+				$this->store->locked( 'recovery', fn() => $this->ensure_recovery_action() );
 				$keys = $this->store->pending_keys( (int) get_option( 'wpwf_recovery_cursor', 0 ) );
 				foreach ( $keys as $key ) {
 					try {
 						$this->store->locked( $this->identity( $key ), fn() => $this->enqueue( $key ), 0 );
-					} catch ( WP_Exception $error ) {
-						wp_trigger_error( __METHOD__, $error->getMessage() );
+					} catch ( Throwable $error ) {
+						// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Continue recovering other records even under Action Scheduler's throwing error handler.
+						error_log( 'WPWF stack recovery deferred: ' . $error->getMessage() );
 					}
 				}
 				update_option( 'wpwf_recovery_cursor', empty( $keys ) ? 0 : max( array_keys( $keys ) ), false );
+				// Never hold the recovery mutex while waiting on an identity mutex.
+				$this->store->locked(
+					'recovery',
+					function (): void {
+						if ( empty( $this->store->pending_keys() ) ) {
+							as_unschedule_all_actions( self::RECOVERY_HOOK, array(), 'wpwf' );
+							delete_option( 'wpwf_recovery_cursor' );
+						}
+					}
+				);
 			},
 			0
 		);

@@ -121,12 +121,16 @@ the legacy compatibility target.
 `UpdateStackTest.php` exercises the real database, scheduler runner and HTTP
 receiver with a controlled clock: cutoff boundaries, stable original action IDs,
 frozen retries, in-flight updates, custom JSON shapes, meta-key retention, recipient
-isolation, opt-out and immediate behavior, limits and recovery beyond 100 records.
+isolation, opt-out and immediate behavior, overflow splitting (including a real
+105-field meta save), nested-array body filters, throwing listeners, failed
+completion callbacks, database-router fallback, stable group counts, on-demand
+recovery retirement and recovery beyond 100 records.
 It also asserts bounded append query counts with unrelated queued identities.
 The existing application suites explicitly opt out to pin the legacy contract.
 
 `tests/concurrent-stacks.php` runs outside PHPUnit's rollback transaction. Eight
-independent PHP processes race to append to one identity. The receiver must see
+independent PHP processes race to append to one identity while another process
+runs recovery, including idle retirement. The receiver must see
 every accepted event exactly once in one aggregate. A separate worker exits after
 the HTTP response but before acknowledgement: after simulating Action Scheduler's
 abandoned-action failure, recovery must resend identical JSON with the original

@@ -25,6 +25,20 @@ final class Stack_Store {
 	public const PREFIX = 'wpwf_stack_';
 
 	/**
+	 * Fail closed for database routers whose reads and locks may use different connections.
+	 *
+	 * @return bool
+	 */
+	public static function is_supported(): bool {
+		global $wpdb;
+		if ( 'wpdb' !== get_class( $wpdb ) ) {
+			return false;
+		}
+		$minimum = str_contains( $wpdb->db_server_info(), 'MariaDB' ) ? '10.1' : '5.7.5';
+		return version_compare( $wpdb->db_version(), $minimum, '>=' );
+	}
+
+	/**
 	 * Serialize one identity's mutations on the site's primary MySQL connection.
 	 *
 	 * @template T
@@ -36,9 +50,7 @@ final class Stack_Store {
 	 */
 	public function locked( string $key, callable $callback, int $timeout = 5 ): mixed {
 		global $wpdb;
-		// Older servers release the send mutex when acquiring the nested state mutex.
-		$minimum = str_contains( $wpdb->db_server_info(), 'MariaDB' ) ? '10.1' : '5.7.5';
-		if ( version_compare( $wpdb->db_version(), $minimum, '<' ) ) {
+		if ( ! self::is_supported() ) {
 			throw new WP_Exception( 'webhook_stack_database_unsupported' );
 		}
 		$name = 'wpwf:' . hash( 'sha256', (string) constant( 'DB_NAME' ) . ':' . $wpdb->prefix . ':' . $key );
@@ -57,7 +69,7 @@ final class Stack_Store {
 	}
 
 	/**
-	 * Read directly so another worker's accepted events is immediately visible.
+	 * Read directly so another worker's accepted events are immediately visible.
 	 *
 	 * @param string $key Delivery identity.
 	 * @return array<string,mixed>|null
@@ -74,25 +86,7 @@ final class Stack_Store {
 		if ( null === $value ) {
 			return null;
 		}
-		// Cast only the envelope: nested payload objects (including {}) must keep their JSON shape.
-		$decoded = json_decode( $value );
-		$record  = is_object( $decoded ) ? (array) $decoded : null;
-		if ( is_array( $record ) ) {
-			if ( isset( $record['headers'] ) && is_object( $record['headers'] ) ) {
-				$record['headers'] = (array) $record['headers'];
-			}
-			if ( isset( $record['events'] ) && is_array( $record['events'] ) ) {
-				foreach ( $record['events'] as &$event ) {
-					if ( is_object( $event ) ) {
-						$event = (array) $event;
-						if ( isset( $event['payload'] ) && is_object( $event['payload'] ) ) {
-							$event['payload'] = (array) $event['payload'];
-						}
-					}
-				}
-				unset( $event );
-			}
-		}
+		$record = self::normalize_json( json_decode( $value ) );
 		if ( ! is_array( $record ) || ! isset( $record['url'], $record['entity'], $record['id'], $record['headers'], $record['events'], $record['opened_at'], $record['scheduled_for'], $record['due'], $record['attempt'], $record['delivery_id'] )
 			|| ! is_string( $record['url'] ) || ! is_string( $record['entity'] )
 			|| ( ! is_int( $record['id'] ) && ! is_string( $record['id'] ) ) || ! is_array( $record['headers'] )
@@ -108,6 +102,25 @@ final class Stack_Store {
 		}
 
 		return $record;
+	}
+
+	/**
+	 * Keep ordinary nested objects array-accessible without turning {} or numeric-key objects into lists.
+	 *
+	 * @param mixed $value Decoded JSON value.
+	 * @return mixed
+	 */
+	private static function normalize_json( mixed $value ): mixed {
+		if ( is_object( $value ) ) {
+			/**
+			 * Numeric JSON property names become integer keys in PHP.
+			 *
+			 * @var array<int|string,mixed> $fields
+			 */
+			$fields = array_map( self::normalize_json( ... ), get_object_vars( $value ) );
+			return array_is_list( $fields ) ? (object) $fields : $fields;
+		}
+		return is_array( $value ) ? array_map( self::normalize_json( ... ), $value ) : $value;
 	}
 
 	/**

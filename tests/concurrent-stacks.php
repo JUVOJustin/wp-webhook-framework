@@ -67,6 +67,12 @@ if ( isset( $argv[2], $argv[3] ) ) {
 	if ( 0 < $delay ) {
 		usleep( (int) ( $delay * 1000000 ) );
 	}
+	if ( 'recover' === $argv[3] ) {
+		for ( $pass = 0; $pass < 10; ++$pass ) {
+			$dispatcher->get_update_stack()->recover();
+		}
+		exit( 0 );
+	}
 	$dispatcher->schedule(
 		'update',
 		'custom',
@@ -102,10 +108,10 @@ $store        = new Stack_Store();
 $start        = (string) ( microtime( true ) + 3 );
 $worker_count = max( 1, min( 16, (int) ( getenv( 'WPWF_TEST_WORKERS' ) ?: 8 ) ) );
 try {
-	for ( $worker = 0; $worker < $worker_count; ++$worker ) {
+	for ( $worker = 0; $worker <= $worker_count; ++$worker ) {
 		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.system_calls_proc_open -- Separate PHP processes are the behavior under test.
 		$process = proc_open(
-			array( PHP_BINARY, __FILE__, $run_id, $start, (string) $worker, (string) $clock ),
+			array( PHP_BINARY, __FILE__, $run_id, $start, $worker_count === $worker ? 'recover' : (string) $worker, (string) $clock ),
 			array(
 				0 => array( 'file', '/dev/null', 'r' ),
 				1 => STDOUT,
@@ -171,7 +177,7 @@ try {
 	$logs     = json_decode( wp_remote_retrieve_body( $response ), true )['logs'] ?? array();
 	$received = array_values( array_filter( $logs, static fn( array $log ): bool => $name === $log['webhook_name'] ) );
 	wpwf_require( 1 === count( $received ) && 'latest' === $received[0]['body']['payload']['version'] && count( $received[0]['body']['aggregated_events'] ) === $worker_count + 1 && $original_id === $received[0]['body']['delivery_id'], 'Receiver did not get one complete aggregated notification with the original action ID.' );
-	echo "PASS: concurrent writers preserved every event, one action and original delivery ID.\n";
+	echo "PASS: concurrent writers plus recovery preserved every event, one action and original delivery ID.\n";
 
 	$dispatcher->schedule( 'update', 'custom', $run_id, $url, array( 'version' => 'crash' ), $webhook->get_headers() );
 	$keys = $store->pending_keys();

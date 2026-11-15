@@ -135,7 +135,12 @@ content or reset its budget. A hard exit after starting an attempt consumes that
 attempt; recovery waits for the scheduler to mark abandoned work failed.
 `max_retries( 0 )` also disables retries after such interruptions.
 
-Overflow rejects the new event through the existing warning/exception path while
-preserving accepted events. Invalid final body filters, removed registrations,
+A full window starts an additional window for the next event without dropping
+accepted events. Only a single event too large to fit is rejected through the
+existing warning/exception path. Invalid final body filters, removed registrations,
 blocked destinations and exhausted attempts fail without sending and remove the
 stored stack. HTTP delivery failures continue to fire the existing failure hooks.
+
+A throwing HTTP failure listener does not discard a stack's remaining retries.
+Errors while scheduling from a completion/failure callback are logged and left
+for recovery, allowing the runner to continue with unrelated actions.

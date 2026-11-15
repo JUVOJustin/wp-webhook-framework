@@ -93,6 +93,7 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 			}
 		} while ( ! empty( $keys ) );
 		delete_option( 'wpwf_recovery_cursor' );
+		as_unschedule_all_actions( Update_Stack::RECOVERY_HOOK, array(), 'wpwf' );
 		do {
 			$ids = as_get_scheduled_actions(
 				array(
@@ -361,8 +362,8 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 
 	/** Accepted records recover when scheduling fails after persistence. */
 	public function test_recovery_after_scheduler_rejection_and_interrupted_id_write(): void {
-		$reject = static fn(): int => 0;
-		add_filter( 'pre_as_schedule_single_action', $reject );
+		$reject = static fn( $pre, int $timestamp, string $hook ) => Update_Stack::HOOK === $hook ? 0 : $pre;
+		add_filter( 'pre_as_schedule_single_action', $reject, 10, 3 );
 		try {
 			$this->emit_update( array( 'value' => 'recoverable' ) );
 			$this->fail( 'Expected scheduling to fail visibly.' );
@@ -390,22 +391,27 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		$this->assertSame( 'recoverable', $this->get_captured_requests()[0]['body']['payload']['value'] );
 	}
 
-	/** Overflow is explicit and cannot overwrite the already accepted event history. */
-	public function test_capacity_rejects_new_event_without_losing_accepted_events(): void {
+	/** A full window keeps its history and overflow starts another without losing the newest event. */
+	public function test_capacity_opens_another_window_without_losing_events(): void {
 		for ( $index = 0; $index < Update_Stack::MAX_EVENTS; ++$index ) {
 			$this->emit_update( array( 'sequence' => $index ) );
 		}
-		try {
-			$this->emit_update( array( 'sequence' => 'overflow' ) );
-			$this->fail( 'Expected the stack limit to reject this event.' );
-		} catch ( WP_Exception $error ) {
-			$this->assertSame( 'webhook_stack_capacity_exceeded', $error->getMessage() );
-		}
-		$this->now += 60;
-		$this->run_action( $this->pending()[0] );
-		$body = $this->get_captured_requests()[0]['body'];
-		$this->assertCount( 100, $body['aggregated_events'] );
-		$this->assertSame( 99, $body['payload']['sequence'] );
+		$original   = $this->pending()[0];
+		$this->now += 20;
+		$this->emit_update( array( 'sequence' => 100 ) );
+		$ids = $this->pending();
+		$this->assertCount( 2, $ids );
+		$this->assertSame( $original, $ids[0] );
+		$this->now += 40;
+		$this->run_action( $ids[0] );
+		$this->now += 20;
+		$this->run_action( $ids[1] );
+		$requests = $this->get_captured_requests();
+		$this->assertCount( 100, $requests[0]['body']['aggregated_events'] );
+		$this->assertSame( 99, $requests[0]['body']['payload']['sequence'] );
+		$this->assertCount( 1, $requests[1]['body']['aggregated_events'] );
+		$this->assertSame( 100, $requests[1]['body']['payload']['sequence'] );
+		$this->assertNotSame( $requests[0]['body']['delivery_id'], $requests[1]['body']['delivery_id'] );
 	}
 
 	/** An oversized first event leaves no orphan record or action. */
@@ -545,5 +551,244 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		$this->assertSame( array(), $this->get_captured_requests() );
 		$this->assertSame( array(), $this->pending() );
 		$this->assertSame( array(), ( new Stack_Store() )->pending_keys() );
+	}
+	/** The byte limit splits a window even when its event count is small. */
+	public function test_byte_capacity_splits_without_rejecting_valid_events(): void {
+		$this->emit_update( array( 'large' => str_repeat( 'a', 140000 ) ) );
+		$this->emit_update( array( 'large' => str_repeat( 'b', 140000 ) ) );
+		$this->assertCount( 2, $this->pending() );
+		$this->now += 60;
+		foreach ( $this->pending() as $id ) {
+			$this->run_action( $id );
+		}
+		$requests = $this->get_captured_requests();
+		$this->assertSame( str_repeat( 'a', 140000 ), $requests[0]['body']['payload']['large'] );
+		$this->assertSame( str_repeat( 'b', 140000 ), $requests[1]['body']['payload']['large'] );
+	}
+
+	/** Real meta entity-mode saves can exceed the per-window limit without losing notifications. */
+	public function test_meta_entity_save_with_more_than_100_fields(): void {
+		$post_id = self::factory()->post->create();
+		$meta    = Service_Provider::get_registry()->get( 'meta' );
+		$post    = Service_Provider::get_registry()->get( 'post' );
+		for ( $index = 0; $index < 105; ++$index ) {
+			add_post_meta( $post_id, 'stack_field_' . $index, 'before', true );
+		}
+		$this->clear_scheduled_webhooks();
+		$post->stack_updates( true );
+		$meta->emission_mode( juvo\WP_Webhook_Framework\Webhooks\Meta_Emission_Mode::ENTITY );
+		try {
+			for ( $index = 0; $index < 105; ++$index ) {
+				update_post_meta( $post_id, 'stack_field_' . $index, 'after' );
+			}
+			$this->assertCount( 2, $this->pending() );
+			$this->now += 60;
+			foreach ( $this->pending() as $id ) {
+				$this->run_action( $id );
+			}
+			$requests = $this->get_captured_requests();
+			$this->assertCount( 100, $requests[0]['body']['aggregated_events'] );
+			$this->assertCount( 5, $requests[1]['body']['aggregated_events'] );
+			$this->assertSame( 'after', get_post_meta( $post_id, 'stack_field_104', true ) );
+		} finally {
+			$post->stack_updates( false );
+			$meta->emission_mode( juvo\WP_Webhook_Framework\Webhooks\Meta_Emission_Mode::BOTH );
+		}
+	}
+
+	/** Windows must reuse one group because Action Scheduler does not clean up group rows. */
+	public function test_scheduler_group_count_does_not_grow_with_windows(): void {
+		global $wpdb;
+		$this->emit_update( array() );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Inspect persistent scheduler group growth, the regression under test.
+		$before = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->actionscheduler_groups}" );
+		for ( $index = 0; $index < 10; ++$index ) {
+			$this->now += 60;
+			$this->emit_update( array() );
+		}
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Group rows remain even after action cleanup.
+		$after = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->actionscheduler_groups}" );
+		$this->assertSame( $before, $after );
+		$this->assertCount( 11, $this->pending() );
+	}
+
+	/** Ordinary nested event data stays accessible to PHP filters as associative arrays. */
+	public function test_body_filter_can_read_nested_payload_arrays(): void {
+		$this->emit_update( array( 'billing' => array( 'email' => 'test@example.com' ) ) );
+		add_filter(
+			'wpwf_request_body',
+			static function ( array $body ): array {
+				$body['payload']['email_copy'] = $body['payload']['billing']['email'];
+				return $body;
+			}
+		);
+		$this->now += 60;
+		$this->run_action( $this->pending()[0] );
+		$this->assertSame( 'test@example.com', $this->get_captured_requests()[0]['body']['payload']['email_copy'] );
+	}
+
+	/** Exceptions in notification listeners cannot cancel a retryable HTTP failure. */
+	public function test_throwing_failure_listener_keeps_retry_and_frozen_body(): void {
+		$this->webhook->webhook_url( $this->get_receiver_webhook_url( 'listener', 'fail' ) )->max_retries( 1 );
+		add_action(
+			'wpwf_webhook_failed',
+			static function (): void {
+				throw new RuntimeException( 'listener-error' );
+			}
+		);
+		$this->emit_update( array() );
+		$this->now += 60;
+		$original   = $this->pending()[0];
+		$this->run_action( $original );
+		$this->assertCount( 1, $this->pending() );
+		$this->now += $this->webhook->calculate_retry_delay( 1 );
+		$this->run_action( $this->pending()[0] );
+		$requests = $this->get_captured_requests();
+		$this->assertCount( 2, $requests );
+		$this->assertSame( $requests[0]['raw_body'], $requests[1]['raw_body'] );
+		$this->assertSame( array(), ( new Stack_Store() )->pending_keys() );
+	}
+
+	/** Recovery starts with accepted work and retires instead of logging idle actions forever. */
+	public function test_recovery_starts_on_demand_and_retires_when_empty(): void {
+		$this->assertFalse( as_has_scheduled_action( Update_Stack::RECOVERY_HOOK, array(), 'wpwf' ) );
+		$this->emit_update( array() );
+		$this->assertTrue( as_has_scheduled_action( Update_Stack::RECOVERY_HOOK, array(), 'wpwf' ) );
+		$this->now += 60;
+		$this->run_action( $this->pending()[0] );
+		$ids = as_get_scheduled_actions(
+			array(
+				'hook'   => Update_Stack::RECOVERY_HOOK,
+				'status' => ActionScheduler_Store::STATUS_PENDING,
+			),
+			'ids'
+		);
+		$this->assertCount( 1, $ids );
+		$this->assertFalse( ActionScheduler::store()->fetch_action( $ids[0] )->get_schedule()->is_recurring() );
+		$this->run_action( (int) $ids[0] );
+		$this->assertFalse( as_has_scheduled_action( Update_Stack::RECOVERY_HOOK, array(), 'wpwf' ) );
+		$this->emit_update( array() );
+		$this->assertTrue( as_has_scheduled_action( Update_Stack::RECOVERY_HOOK, array(), 'wpwf' ) );
+	}
+
+	/** The runner must complete its batch even when a completion callback cannot acquire its lock. */
+	public function test_after_action_lock_failure_defers_without_aborting_runner(): void {
+		$this->emit_update( array() );
+		$id        = $this->pending()[0];
+		$deny_lock = static fn( string $query ): string => str_contains( $query, 'SELECT GET_LOCK(' ) ? 'SELECT 0' : $query;
+		$install   = static function () use ( $deny_lock ): void {
+			add_filter( 'query', $deny_lock );
+		};
+		add_action( 'action_scheduler_after_execute', $install );
+		try {
+			$this->run_action( $id );
+			$this->assertSame( ActionScheduler_Store::STATUS_COMPLETE, ActionScheduler::store()->get_status( $id ) );
+		} finally {
+			remove_filter( 'query', $deny_lock );
+			remove_action( 'action_scheduler_after_execute', $install );
+		}
+		$this->assertCount( 1, ( new Stack_Store() )->pending_keys() );
+		Service_Provider::get_dispatcher()->get_update_stack()->recover();
+		$this->assertCount( 1, $this->pending() );
+	}
+
+	/** Unknown database routers retain legacy delivery rather than risk stale-read event loss. */
+	public function test_database_dropin_falls_back_to_legacy_delivery(): void {
+		global $wpdb;
+		$original = $wpdb;
+		$original->flush();
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Simulate a database drop-in while keeping the test transaction's actual connection.
+		$wpdb = new class($original) extends wpdb {
+			/**
+			 * Share the original connection and WordPress table names, without reconnecting.
+			 *
+			 * @param wpdb $source Original database handle.
+			 */
+			public function __construct( wpdb $source ) {
+				foreach ( get_object_vars( $source ) as $name => $value ) {
+					$this->$name = $value;
+				}
+			}
+		};
+		try {
+			$this->assertFalse( Stack_Store::is_supported() );
+			$this->emit_update( array( 'value' => 'legacy' ) );
+			$this->assertSame( array(), $this->pending() );
+			$this->assertCount( 1, $this->get_scheduled_webhook_actions() );
+		} finally {
+			// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Restore the database object after the scoped router simulation.
+			$wpdb = $original;
+		}
+	}
+
+	/** A rejected retry in a failure callback cannot escape the runner or erase durable state. */
+	public function test_after_action_schedule_rejection_is_recoverable(): void {
+		$this->webhook->webhook_url( $this->get_receiver_webhook_url( 'rejected-retry', 'fail' ) )->max_retries( 1 );
+		$this->emit_update( array() );
+		$original   = $this->pending()[0];
+		$reject     = static fn( $pre, int $timestamp, string $hook ) => Update_Stack::HOOK === $hook ? 0 : $pre;
+		add_filter( 'pre_as_schedule_single_action', $reject, 10, 3 );
+		$this->now += 60;
+		try {
+			$this->run_action( $original );
+			$this->assertSame( ActionScheduler_Store::STATUS_FAILED, ActionScheduler::store()->get_status( $original ) );
+			$this->assertSame( array(), $this->pending() );
+			$this->assertCount( 1, ( new Stack_Store() )->pending_keys() );
+		} finally {
+			remove_filter( 'pre_as_schedule_single_action', $reject );
+		}
+		Service_Provider::get_dispatcher()->get_update_stack()->recover();
+		$this->assertCount( 1, $this->pending() );
+		$this->now += $this->webhook->calculate_retry_delay( 1 );
+		$this->run_action( $this->pending()[0] );
+		$this->assertCount( 2, $this->get_captured_requests() );
+	}
+	/** A recovery worker killed before its callback is restarted by the scheduler timeout hook. */
+	public function test_abandoned_recovery_action_is_restarted(): void {
+		$this->emit_update( array() );
+		ActionScheduler::store()->cancel_action( $this->pending()[0] );
+		$ids = as_get_scheduled_actions(
+			array(
+				'hook'   => Update_Stack::RECOVERY_HOOK,
+				'status' => ActionScheduler_Store::STATUS_PENDING,
+			),
+			'ids'
+		);
+		ActionScheduler::store()->log_execution( $ids[0] );
+		ActionScheduler::store()->mark_failure( $ids[0] );
+		do_action( 'action_scheduler_failed_action', (int) $ids[0], 300 );
+		$recovery = as_get_scheduled_actions(
+			array(
+				'hook'   => Update_Stack::RECOVERY_HOOK,
+				'status' => ActionScheduler_Store::STATUS_PENDING,
+			),
+			'ids'
+		);
+		$this->assertCount( 1, $recovery );
+		$this->assertNotSame( $ids[0], $recovery[0] );
+		$this->run_action( (int) $recovery[0] );
+		$this->assertCount( 1, $this->pending() );
+	}
+	/** Assigning the original ID cannot overwrite an event emitted by a scheduler storage hook. */
+	public function test_event_emitted_during_scheduler_storage_is_not_overwritten(): void {
+		$emitted  = false;
+		$listener = function ( int $action_id ) use ( &$emitted ): void {
+			if ( ! $emitted && Update_Stack::HOOK === ActionScheduler::store()->fetch_action( $action_id )->get_hook() ) {
+				$emitted = true;
+				$this->emit_update( array( 'value' => 'nested' ) );
+			}
+		};
+		add_action( 'action_scheduler_stored_action', $listener );
+		try {
+			$this->emit_update( array( 'value' => 'first' ) );
+		} finally {
+			remove_action( 'action_scheduler_stored_action', $listener );
+		}
+		$this->assertCount( 1, $this->pending() );
+		$this->now += 60;
+		$this->run_action( $this->pending()[0] );
+		$body = $this->get_captured_requests()[0]['body'];
+		$this->assertSame( array( 'first', 'nested' ), array_column( array_column( $body['aggregated_events'], 'payload' ), 'value' ) );
+		$this->assertSame( 'nested', $body['payload']['value'] );
 	}
 }
