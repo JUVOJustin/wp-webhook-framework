@@ -42,7 +42,7 @@ final class ActionSchedulerCompatibilityTest extends WPWF_Webhook_Test_Case {
 			$dispatcher->schedule(
 				$action,
 				'custom',
-				42,
+				'42',
 				$url,
 				array( 'version' => 'first' ),
 				array(
@@ -53,7 +53,7 @@ final class ActionSchedulerCompatibilityTest extends WPWF_Webhook_Test_Case {
 			$dispatcher->schedule(
 				$action,
 				'custom',
-				'42',
+				42,
 				$url,
 				array( 'version' => 'second' ),
 				array(
@@ -112,9 +112,9 @@ final class ActionSchedulerCompatibilityTest extends WPWF_Webhook_Test_Case {
 		$dispatcher = Service_Provider::get_dispatcher();
 		$url        = $this->get_receiver_webhook_url( 'compat-pages' );
 		for ( $id = 1; $id <= 105; ++$id ) {
-			$dispatcher->schedule( 'update', 'custom', $id, $url );
+			$dispatcher->schedule( 'update', 'custom', 42, $url . '/' . $id );
 		}
-		$dispatcher->schedule( 'update', 'custom', 105, $url );
+		$dispatcher->schedule( 'update', 'custom', '42', $url . '/105' );
 		$this->assertCount(
 			105,
 			as_get_scheduled_actions(
@@ -126,6 +126,49 @@ final class ActionSchedulerCompatibilityTest extends WPWF_Webhook_Test_Case {
 				'ids'
 			)
 		);
+	}
+
+	/**
+	 * Unrelated queued IDs must not each require a fetch when checking one identity.
+	 */
+	public function test_numeric_lookup_does_not_hydrate_the_entire_queue(): void {
+		global $wpdb;
+		$dispatcher = Service_Provider::get_dispatcher();
+		$url        = $this->get_receiver_webhook_url( 'compat-query-budget' );
+		for ( $id = 1; $id <= 120; ++$id ) {
+			$dispatcher->schedule( 'update', 'custom', $id, $url, array( 'large' => str_repeat( 'x', 1000 ) ) );
+		}
+		$before = $wpdb->num_queries;
+		$dispatcher->schedule( 'update', 'custom', '120', $url, array( 'changed' => true ) );
+		$this->assertLessThan( 20, $wpdb->num_queries - $before );
+		$this->assertCount(
+			120,
+			as_get_scheduled_actions(
+				array(
+					'hook'     => 'wpwf_send_webhook',
+					'status'   => ActionScheduler_Store::STATUS_PENDING,
+					'per_page' => 200,
+				),
+				'ids'
+			)
+		);
+	}
+
+	/**
+	 * The fallback must retain escaped string IDs without treating them as SQL patterns.
+	 */
+	public function test_custom_string_ids_retain_the_first_payload(): void {
+		$dispatcher = Service_Provider::get_dispatcher();
+		$url        = $this->get_receiver_webhook_url( 'compat-string-ids' );
+		foreach ( array( '0042', 'a"b', 'a/b', 'a%b_c', 'über', '9223372036854775808' ) as $id ) {
+			$dispatcher->schedule( 'update', 'custom', $id, $url, array( 'version' => 'first' ) );
+			$dispatcher->schedule( 'update', 'custom', $id, $url, array( 'version' => 'second' ) );
+		}
+		$actions = $this->get_scheduled_webhook_actions();
+		$this->assertCount( 6, $actions );
+		foreach ( $actions as $action ) {
+			$this->assertSame( array( 'version' => 'first' ), $action['payload'] );
+		}
 	}
 
 	/**

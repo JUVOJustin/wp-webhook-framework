@@ -84,29 +84,38 @@ class Dispatcher {
 	 * @return bool
 	 */
 	private function has_pending_webhook( string $url, string $action, string $entity, int|string $id, string $group ): bool {
-		$offset = 0;
-		do {
-			$pending = as_get_scheduled_actions(
-				array(
-					'hook'     => 'wpwf_send_webhook',
-					'group'    => $group,
-					'status'   => \ActionScheduler_Store::STATUS_PENDING,
-					'per_page' => 100,
-					'offset'   => $offset,
-					'orderby'  => 'action_id',
-					'order'    => 'ASC',
-				)
-			);
-			foreach ( $pending as $scheduled ) {
-				$args = $scheduled->get_args();
-				if ( ( $args['url'] ?? null ) === $url && ( $args['action'] ?? null ) === $action
-					&& ( $args['entity'] ?? null ) === $entity && isset( $args['id'] ) && (string) $args['id'] === (string) $id ) {
-					return true;
+		// Canonical integer IDs cover WordPress entities. Other IDs retain the full scan
+		// so JSON escaping or custom serialization cannot hide an existing action.
+		$searches = array( '' );
+		if ( (string) (int) $id === (string) $id ) {
+			$searches = array( '"id":' . $id . ',', '"id":"' . $id . '"' );
+		}
+		foreach ( $searches as $search ) {
+			$offset = 0;
+			do {
+				$pending = as_get_scheduled_actions(
+					array(
+						'hook'     => 'wpwf_send_webhook',
+						'group'    => $group,
+						'search'   => $search,
+						'status'   => \ActionScheduler_Store::STATUS_PENDING,
+						'per_page' => 100,
+						'offset'   => $offset,
+						'orderby'  => 'action_id',
+						'order'    => 'ASC',
+					)
+				);
+				foreach ( $pending as $scheduled ) {
+					$args = $scheduled->get_args();
+					if ( ( $args['url'] ?? null ) === $url && ( $args['action'] ?? null ) === $action
+						&& ( $args['entity'] ?? null ) === $entity && isset( $args['id'] ) && (string) $args['id'] === (string) $id ) {
+						return true;
+					}
 				}
-			}
-			$offset += 100;
-			$count   = count( $pending );
-		} while ( 100 === $count );
+				$offset += 100;
+				$count   = count( $pending );
+			} while ( 100 === $count );
+		}
 		return false;
 	}
 
