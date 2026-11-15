@@ -72,44 +72,45 @@ final class Update_Stack {
 		$this->store->locked(
 			$identity,
 			function () use ( $identity, $url, $entity, $id, $payload, $headers ): void {
-				$now    = $this->now();
-				$key    = $this->store->latest_key( $identity );
-				$record = null === $key ? null : $this->store->get( $key );
-				$event  = array(
-					'timestamp' => gmdate( 'Y-m-d\TH:i:s\Z', $now ),
-					'payload'   => $payload,
-				);
-				if ( null !== $record && null === $record['body'] && $record['scheduled_for'] > $now ) {
-					$record['events'][] = $event;
-				} else {
-					$record = null;
-				}
-				if ( null === $record || ! $this->fits( $record ) ) {
-					// Overflow starts an additional window; the full window and its deadline remain intact.
-					$key    = $identity . ':' . wp_generate_uuid4();
-					$record = array(
-						'url'           => $url,
-						'entity'        => $entity,
-						'id'            => $id,
-						'headers'       => $headers,
-						'events'        => array( $event ),
-						'opened_at'     => $now,
-						'scheduled_for' => $now + 60,
-						'due'           => $now + 60,
-						'attempt'       => 0,
-						'delivery_id'   => 0,
-						'body'          => null,
-					);
-					if ( ! $this->fits( $record ) ) {
-						throw new WP_Exception( 'webhook_stack_capacity_exceeded' );
-					}
-				}
-				// Recovery cannot retire between arming its next pass and persisting accepted work.
-				$this->store->locked(
+				$key = $this->store->locked(
 					'recovery',
-					function () use ( $key, $record ): void {
+					function () use ( $identity, $url, $entity, $id, $payload, $headers ): string {
+						// Storage hooks can emit events: read the current window only after recovery is armed.
 						$this->ensure_recovery_action();
+						$now    = $this->now();
+						$key    = $this->store->latest_key( $identity );
+						$record = null === $key ? null : $this->store->get( $key );
+						$event  = array(
+							'timestamp' => gmdate( 'Y-m-d\TH:i:s\Z', $now ),
+							'payload'   => $payload,
+						);
+						if ( null !== $record && null === $record['body'] && $record['scheduled_for'] > $now ) {
+							$record['events'][] = $event;
+						} else {
+							$record = null;
+						}
+						if ( null === $record || ! $this->fits( $record ) ) {
+							// Overflow starts an additional window; the full window and its deadline remain intact.
+							$key    = $identity . ':' . wp_generate_uuid4();
+							$record = array(
+								'url'           => $url,
+								'entity'        => $entity,
+								'id'            => $id,
+								'headers'       => $headers,
+								'events'        => array( $event ),
+								'opened_at'     => $now,
+								'scheduled_for' => $now + 60,
+								'due'           => $now + 60,
+								'attempt'       => 0,
+								'delivery_id'   => 0,
+								'body'          => null,
+							);
+							if ( ! $this->fits( $record ) ) {
+								throw new WP_Exception( 'webhook_stack_capacity_exceeded' );
+							}
+						}
 						$this->store->put( $key, $record );
+						return $key;
 					}
 				);
 				$this->enqueue( $key );
@@ -201,9 +202,14 @@ final class Update_Stack {
 						if ( null === $record ) {
 							return null;
 						}
+						// Checkpoint before consumer filters: fatal preparation failures must consume a finite budget.
+						$previous_attempt = $record['attempt'];
+						++$record['attempt'];
+						$record['due'] = $this->now() + 300;
+						$this->store->put( $key, $record );
 						try {
 							$webhook = $this->webhook( $record );
-							if ( $record['attempt'] > $webhook->get_max_retries() ) {
+							if ( $previous_attempt > $webhook->get_max_retries() ) {
 								throw new WP_Exception( 'webhook_stack_attempts_exhausted' );
 							}
 							if ( null === $record['body'] ) {
@@ -221,8 +227,7 @@ final class Update_Stack {
 								);
 								$record['body'] = $this->dispatcher->seal_stacked_body( $body, $record['entity'], $record['id'], $latest['payload'], $webhook );
 							}
-							// Plan recovery before HTTP; a hard exit must consume a bounded retry budget.
-							++$record['attempt'];
+							// Successful preparation replaces the fallback delay with configured backoff.
 							$record['due'] = $this->now() + $webhook->calculate_retry_delay( $record['attempt'] );
 						} catch ( Throwable $error ) {
 							$this->store->delete( $key );
@@ -318,6 +323,11 @@ final class Update_Stack {
 			if ( self::RECOVERY_HOOK !== ActionScheduler::store()->fetch_action( $action_id )->get_hook() ) {
 				return;
 			}
+			if ( ! Stack_Store::is_supported() ) {
+				// Only retain a wake-up while a drop-in is active; never read or mutate stack payloads here.
+				$this->ensure_recovery_action( true );
+				return;
+			}
 			$this->store->locked(
 				'recovery',
 				function (): void {
@@ -333,11 +343,12 @@ final class Update_Stack {
 	}
 
 	/**
-	 * Arm one future pass while holding the recovery mutex; running passes do not count.
+	 * Arm a future pass under the mutex, or use native uniqueness during database fallback.
 	 *
+	 * @param bool $unique Use scheduler uniqueness when the database cannot provide our lock.
 	 * @throws WP_Exception If recovery cannot be scheduled before accepting work.
 	 */
-	private function ensure_recovery_action(): void {
+	private function ensure_recovery_action( bool $unique = false ): void {
 		$pending = as_get_scheduled_actions(
 			array(
 				'hook'     => self::RECOVERY_HOOK,
@@ -347,7 +358,7 @@ final class Update_Stack {
 			),
 			'ids'
 		);
-		if ( empty( $pending ) && 0 === as_schedule_single_action( time() + 300, self::RECOVERY_HOOK, array(), 'wpwf' ) ) {
+		if ( empty( $pending ) && 0 === as_schedule_single_action( time() + 300, self::RECOVERY_HOOK, array(), 'wpwf', $unique ) ) {
 			throw new WP_Exception( 'webhook_stack_recovery_schedule_failed' );
 		}
 	}

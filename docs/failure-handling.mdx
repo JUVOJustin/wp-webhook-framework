@@ -131,7 +131,7 @@ For detailed action documentation, see [Hooks and Filters](./hooks-and-filters.m
 [Stacked updates](./update-stacking.mdx) retain the original action's integer
 `delivery_id` and the exact sealed JSON across retries. A retry can have a different
 Action Scheduler ID. New events create later windows and do not overwrite retry
-content or reset its budget. A hard exit after starting an attempt consumes that
+content or reset its budget. A hard exit during body preparation or HTTP consumes that
 attempt; recovery waits for the scheduler to mark abandoned work failed.
 `max_retries( 0 )` also disables retries after such interruptions.
 

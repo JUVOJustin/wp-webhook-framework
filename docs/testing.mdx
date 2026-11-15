@@ -134,7 +134,9 @@ runs recovery, including idle retirement. The receiver must see
 every accepted event exactly once in one aggregate. A separate worker exits after
 the HTTP response but before acknowledgement: after simulating Action Scheduler's
 abandoned-action failure, recovery must resend identical JSON with the original
-ID. This deliberately demonstrates possible HTTP redelivery.
+ID. This deliberately demonstrates possible HTTP redelivery. A second hard-exit
+probe terminates inside the body filter before any HTTP: recovery must exhaust
+the configured budget and remove the record, rather than loop forever.
 
 For a low-resource or serial probe, pass the worker setting inside the container:
 

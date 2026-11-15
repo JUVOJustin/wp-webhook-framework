@@ -45,6 +45,18 @@ $webhook->webhook_url( $url )->max_retries( 1 );
 Service_Provider::get_registry()->register( $webhook );
 $dispatcher = Service_Provider::get_dispatcher();
 
+if ( 'crash-filter' === ( $argv[2] ?? '' ) ) {
+	$webhook->max_retries( 0 );
+	add_filter(
+		'wpwf_request_body',
+		static function (): void {
+			exit( 0 );
+		}
+	);
+	( new ActionScheduler_QueueRunner( ActionScheduler::store() ) )->process_action( (int) $argv[3], 'wpwf-filter-crash' );
+	exit( 1 );
+}
+
 if ( 'crash' === ( $argv[2] ?? '' ) ) {
 	// Terminate after the receiver accepted HTTP but before the stack can acknowledge it.
 	add_action(
@@ -98,6 +110,45 @@ function wpwf_require( bool $condition, string $message ): void {
 	if ( ! $condition ) {
 		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- CLI assertions receive only literal test messages.
 		throw new RuntimeException( $message );
+	}
+}
+
+/**
+ * Terminate a real worker at the chosen boundary and keep every wait and cleanup bounded.
+ *
+ * @param string $run_id Isolated probe identifier.
+ * @param string $mode Hard-exit point in the child process.
+ * @param int    $action_id Scheduler action to execute.
+ * @param int    $clock Controlled epoch time.
+ */
+function wpwf_crash_worker( string $run_id, string $mode, int $action_id, int $clock ): void {
+	// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.system_calls_proc_open -- Independent process termination is the behavior under test.
+	$process = proc_open(
+		array( PHP_BINARY, __FILE__, $run_id, $mode, (string) $action_id, (string) $clock ),
+		array(
+			0 => array( 'file', '/dev/null', 'r' ),
+			1 => STDOUT,
+			2 => STDERR,
+		),
+		$pipes
+	);
+	wpwf_require( is_resource( $process ), 'Could not launch crash worker.' );
+	try {
+		$deadline = microtime( true ) + 30;
+		do {
+			$worker_status = proc_get_status( $process );
+			if ( ! $worker_status['running'] ) {
+				break;
+			}
+			wpwf_require( microtime( true ) < $deadline, 'Crash worker timed out.' );
+			usleep( 25000 );
+		} while ( true );
+		wpwf_require( 0 === $worker_status['exitcode'], 'Crash worker did not reach its exit point.' );
+	} finally {
+		if ( proc_get_status( $process )['running'] ) {
+			proc_terminate( $process, 9 );
+		}
+		proc_close( $process );
 	}
 }
 
@@ -189,30 +240,7 @@ try {
 	$owned_keys[] = $key;
 	$original_id  = $store->get( $key )['delivery_id'];
 	$clock       += 60;
-	// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.system_calls_proc_open -- A real process exit after HTTP exercises recovery without finally callbacks.
-	$process = proc_open(
-		array( PHP_BINARY, __FILE__, $run_id, 'crash', (string) $original_id, (string) $clock ),
-		array(
-			0 => array( 'file', '/dev/null', 'r' ),
-			1 => STDOUT,
-			2 => STDERR,
-		),
-		$pipes
-	);
-	wpwf_require( is_resource( $process ), 'Could not launch crash worker.' );
-	$workers[] = $process;
-	$deadline  = microtime( true ) + 30;
-	do {
-		$crash_status = proc_get_status( $process );
-		if ( ! $crash_status['running'] ) {
-			break;
-		}
-		wpwf_require( microtime( true ) < $deadline, 'Crash worker timed out.' );
-		usleep( 25000 );
-	} while ( true );
-	proc_close( $process );
-	$workers = array();
-	wpwf_require( 0 === $crash_status['exitcode'], 'Crash worker did not reach its exit point.' );
+	wpwf_crash_worker( $run_id, 'crash', $original_id, $clock );
 	wpwf_require( ActionScheduler_Store::STATUS_RUNNING === ActionScheduler::store()->get_status( $original_id ), 'Hard exit did not leave an in-progress action.' );
 	wpwf_require( 1 === $store->get( $key )['attempt'] && null !== $store->get( $key )['body'], 'Attempt was not sealed before HTTP.' );
 	// Action Scheduler's timeout cleanup marks the abandoned attempt failed; recovery takes over.
@@ -237,6 +265,42 @@ try {
 	wpwf_require( $received[0]['raw_body'] === $received[1]['raw_body'] && $original_id === $received[1]['body']['delivery_id'], 'Recovery changed the body or original ID.' );
 	wpwf_require( null === $store->get( $key ), 'Recovered delivery state was not removed.' );
 	echo "PASS: hard exit after HTTP recovered with identical JSON and original delivery ID.\n";
+	$webhook->max_retries( 0 );
+	$dispatcher->schedule( 'update', 'custom', $run_id, $url, array( 'version' => 'filter-crash' ), $webhook->get_headers() );
+	$keys = $store->pending_keys();
+	foreach ( $keys as $candidate ) {
+		if ( ( $store->get( $candidate )['headers']['wpwf-webhook-name'] ?? '' ) === $name ) {
+			$key = $candidate;
+		}
+	}
+	$owned_keys[] = $key;
+	$original_id  = $store->get( $key )['delivery_id'];
+	$clock       += 60;
+	wpwf_crash_worker( $run_id, 'crash-filter', $original_id, $clock );
+	wpwf_require( ActionScheduler_Store::STATUS_RUNNING === ActionScheduler::store()->get_status( $original_id ), 'Hard exit did not leave an in-progress action.' );
+	wpwf_require( 1 === $store->get( $key )['attempt'] && null === $store->get( $key )['body'], 'Preparation attempt was not persisted before the body filter.' );
+	ActionScheduler::store()->mark_failure( $original_id );
+	$clock += 300;
+	delete_option( 'wpwf_recovery_cursor' );
+	$dispatcher->get_update_stack()->recover();
+	$ids = as_get_scheduled_actions(
+		array(
+			'hook'   => Update_Stack::HOOK,
+			'args'   => array( 'key' => $key ),
+			'status' => ActionScheduler_Store::STATUS_PENDING,
+		),
+		'ids'
+	);
+	wpwf_require( 1 === count( $ids ), 'Missing recovery wake-up for the interrupted preparation.' );
+	( new ActionScheduler_QueueRunner( ActionScheduler::store() ) )->process_action( (int) $ids[0], 'wpwf-filter-recovery' );
+	wpwf_require( null === $store->get( $key ), 'Exhausted preparation attempt kept its record indefinitely.' );
+	wpwf_require( ActionScheduler_Store::STATUS_FAILED === ActionScheduler::store()->get_status( (int) $ids[0] ), 'Expected exhausted preparation to fail without another HTTP attempt.' );
+	$response = wp_remote_post( 'http://tests-wordpress/index.php?rest_route=/wpwf-test/v1/logs' );
+	$logs     = json_decode( wp_remote_retrieve_body( $response ), true )['logs'] ?? array();
+	$received = array_filter( $logs, static fn( array $log ): bool => $name === $log['webhook_name'] && 'filter-crash' === ( $log['body']['payload']['version'] ?? '' ) );
+	wpwf_require( empty( $received ), 'An exhausted preparation attempt reached HTTP.' );
+	echo "PASS: hard exit inside body filter consumed its budget and terminated without HTTP.\n";
+
 } finally {
 	foreach ( $workers as $process ) {
 		if ( is_resource( $process ) ) {

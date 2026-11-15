@@ -695,6 +695,17 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 	/** Unknown database routers retain legacy delivery rather than risk stale-read event loss. */
 	public function test_database_dropin_falls_back_to_legacy_delivery(): void {
 		global $wpdb;
+		$this->emit_update( array( 'value' => 'retained' ) );
+		$delivery_id = $this->pending()[0];
+		ActionScheduler::store()->cancel_action( $delivery_id );
+		$recovery = as_get_scheduled_actions(
+			array(
+				'hook'   => Update_Stack::RECOVERY_HOOK,
+				'status' => ActionScheduler_Store::STATUS_PENDING,
+			),
+			'ids'
+		);
+		ActionScheduler::store()->mark_failure( $recovery[0] );
 		$original = $wpdb;
 		$original->flush();
 		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Simulate a database drop-in while keeping the test transaction's actual connection.
@@ -711,6 +722,7 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 			}
 		};
 		try {
+			do_action( 'action_scheduler_failed_action', (int) $recovery[0], 300 );
 			$this->assertFalse( Stack_Store::is_supported() );
 			$this->emit_update( array( 'value' => 'legacy' ) );
 			$this->assertSame( array(), $this->pending() );
@@ -719,6 +731,21 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 			// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Restore the database object after the scoped router simulation.
 			$wpdb = $original;
 		}
+		$recovery = as_get_scheduled_actions(
+			array(
+				'hook'   => Update_Stack::RECOVERY_HOOK,
+				'status' => ActionScheduler_Store::STATUS_PENDING,
+			),
+			'ids'
+		);
+		$this->assertCount( 1, $recovery );
+		$this->run_action( (int) $recovery[0] );
+		$this->assertCount( 1, $this->pending() );
+		$this->now += 60;
+		$this->run_action( $this->pending()[0] );
+		$request = $this->get_captured_requests()[0];
+		$this->assertSame( 'retained', $request['body']['payload']['value'] );
+		$this->assertSame( $delivery_id, $request['body']['delivery_id'] );
 	}
 
 	/** A rejected retry in a failure callback cannot escape the runner or erase durable state. */
@@ -769,11 +796,18 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		$this->run_action( (int) $recovery[0] );
 		$this->assertCount( 1, $this->pending() );
 	}
-	/** Assigning the original ID cannot overwrite an event emitted by a scheduler storage hook. */
-	public function test_event_emitted_during_scheduler_storage_is_not_overwritten(): void {
+	/**
+	 * Scheduler and recovery storage hooks must not overwrite an accepted nested event.
+	 *
+	 * @dataProvider storage_hook_cases
+	 * @param string   $hook Scheduler hook whose creation triggers the nested event.
+	 * @param string[] $expected Acceptance order.
+	 * @phpstan-param list<string> $expected
+	 */
+	public function test_event_emitted_during_scheduler_storage_is_not_overwritten( string $hook, array $expected ): void {
 		$emitted  = false;
-		$listener = function ( int $action_id ) use ( &$emitted ): void {
-			if ( ! $emitted && Update_Stack::HOOK === ActionScheduler::store()->fetch_action( $action_id )->get_hook() ) {
+		$listener = function ( int $action_id ) use ( &$emitted, $hook ): void {
+			if ( ! $emitted && ActionScheduler::store()->fetch_action( $action_id )->get_hook() === $hook ) {
 				$emitted = true;
 				$this->emit_update( array( 'value' => 'nested' ) );
 			}
@@ -788,7 +822,30 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		$this->now += 60;
 		$this->run_action( $this->pending()[0] );
 		$body = $this->get_captured_requests()[0]['body'];
-		$this->assertSame( array( 'first', 'nested' ), array_column( array_column( $body['aggregated_events'], 'payload' ), 'value' ) );
-		$this->assertSame( 'nested', $body['payload']['value'] );
+		$this->assertSame( $expected, array_column( array_column( $body['aggregated_events'], 'payload' ), 'value' ) );
+		$this->assertSame( end( $expected ), $body['payload']['value'] );
+	}
+	/**
+	 * Recovery is armed before the outer event is accepted; its nested event therefore comes first.
+	 *
+	 * @return list<array{string,list<string>}>
+	 */
+	public static function storage_hook_cases(): array {
+		return array(
+			array( Update_Stack::HOOK, array( 'first', 'nested' ) ),
+			array( Update_Stack::RECOVERY_HOOK, array( 'nested', 'first' ) ),
+		);
+	}
+
+	/** Legacy MariaDB compatibility prefixes must not be mistaken for the actual server version. */
+	public function test_database_version_compatibility_strings(): void {
+		$method = new ReflectionMethod( Stack_Store::class, 'supports_server' );
+		$method->setAccessible( true );
+		foreach ( array( '5.5.5-10.1.48-MariaDB', '10.1.48-MariaDB', '12.3.3-MariaDB', '5.7.5', '8.0.42-MySQL' ) as $version ) {
+			$this->assertTrue( $method->invoke( null, $version ), $version );
+		}
+		foreach ( array( '5.5.5-10.0.38-MariaDB', '5.7.4', '5.5.5', 'unknown' ) as $version ) {
+			$this->assertFalse( $method->invoke( null, $version ), $version );
+		}
 	}
 }

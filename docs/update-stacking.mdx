@@ -140,12 +140,18 @@ looks up only that stack's action, avoiding hydration of unrelated pending jobs.
 
 Stacking requires the standard WordPress `wpdb` class, MySQL 5.7.5+ or MariaDB
 10.1+, and named-lock support on the primary connection. Database subclasses such
-as HyperDB/LudicrousDB conservatively fall back to legacy dispatch, even when
+as Query Monitor (`db.php`), HyperDB and LudicrousDB conservatively fall back to legacy dispatch, even when
 `stack_updates(true)` is configured: unknown routing must not overwrite events
 through stale reads. Older database servers also use legacy dispatch. This means
 receivers must support flat bodies on those installations. Existing stacks are
 retained and fail visibly if the database becomes unsupported; drain them before
-changing database infrastructure. No schema migration or custom table is needed.
+changing database infrastructure. Failed recovery keeps a scheduler wake-up alive
+using native uniqueness, without reading or modifying stack payloads through an
+unsupported connection. After restoring the standard database class, that wake-up
+resumes recovery even if no new update is emitted. Query Monitor is not allowlisted:
+the class guard is deliberately conservative, including non-routing subclasses.
+MariaDB's legacy `5.5.5-` compatibility prefix is stripped before checking its
+actual server version. No schema migration or custom table is needed.
 
 Limits are 100 accepted events and 256 KiB of JSON per unsealed record, including
 routing metadata. If an otherwise valid event would overflow a window, it opens
@@ -158,11 +164,11 @@ truncated or silently evicted. The final filtered JSON body is limited to
 dispatcher calls throw `WP_Exception`; `Webhook::emit()` uses its existing warning
 path. Monitor warnings and failed scheduler actions, especially for high-volume entities.
 
-Recovery is armed only when accepting a stack, with one pending single action
+Recovery is armed when attempting to accept a stack, with one pending single action
 300 seconds ahead. Each pass visits up to 100 records, advances a cursor, and
 arms the next pass before processing. Scheduler failure/timeout hooks restart a
 recovery worker that died before arming its successor. It cancels pending recovery work once the
-store is empty. Thus sites that never stack have no recovery jobs or per-request
+store is empty. Thus sites that never attempt stacking have no recovery jobs or per-request
 recovery query, and idle sites do not accumulate perpetual recovery logs. Registration
 and acceptance share a short database mutex so idle retirement cannot strand work.
 It repairs missing scheduling and retries abandoned
@@ -172,7 +178,10 @@ accepted work. Recovery needs a functioning scheduler and database.
 
 Configured retry limits, backoff and URL blocking apply. Stacking computes the
 retry delay before each attempt to persist recovery timing, even if that attempt
-eventually succeeds. Each started HTTP attempt consumes the retry budget before sending, so a process crash cannot retry forever.
+eventually succeeds. Each preparation/delivery attempt is counted and persisted before consumer body
+and retry-delay filters run, so a fatal body filter also consumes the retry budget.
+An interruption before preparation finishes uses a 300-second recovery delay;
+successful preparation replaces this with the configured backoff.
 With `max_retries( 0 )`, an interrupted attempt is not sent again. Normal success
 and terminal failure remove the stored payload; corrupt or temporarily inaccessible
 records remain for diagnosis/recovery and produce error logs. Completion-callback

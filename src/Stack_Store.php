@@ -34,8 +34,22 @@ final class Stack_Store {
 		if ( 'wpdb' !== get_class( $wpdb ) ) {
 			return false;
 		}
-		$minimum = str_contains( $wpdb->db_server_info(), 'MariaDB' ) ? '10.1' : '5.7.5';
-		return version_compare( $wpdb->db_version(), $minimum, '>=' );
+		return self::supports_server( $wpdb->db_server_info() );
+	}
+
+	/**
+	 * Read MariaDB's real version even when PHP exposes its legacy MySQL compatibility prefix.
+	 *
+	 * @param string $server Server version reported by the database connection.
+	 * @return bool
+	 */
+	private static function supports_server( string $server ): bool {
+		$mariadb = str_contains( $server, 'MariaDB' );
+		if ( $mariadb ) {
+			$server = (string) preg_replace( '/^5\.5\.5-/', '', $server );
+		}
+		$version = (string) preg_replace( '/[^0-9.].*/', '', $server );
+		return '' !== $version && version_compare( $version, $mariadb ? '10.1' : '5.7.5', '>=' );
 	}
 
 	/**
