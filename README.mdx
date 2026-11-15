@@ -147,9 +147,10 @@ See [Webhook Statefulness](./docs/webhook-statefulness.mdx) for detailed explana
 
 ## Payload Structure
 
-Scheduled updates use the [stacking envelope](./docs/update-stacking.mdx), with
-`payload` for the latest event and `aggregated_events` for all accepted events.
-Version 3.0.0 changes the default update body and initial delay. Set
+Scheduled updates keep the latest event fields at the root and add
+`aggregated_events` plus `_wpwf` metadata; see the [stacking format](./docs/update-stacking.mdx).
+Version 4.0.0 restores root event fields from the 3.0.0 envelope while retaining
+the fixed 60-second window. Set
 `stack_updates( false )` to keep the 2.x contract. Existing queued jobs keep their
 original format.
 

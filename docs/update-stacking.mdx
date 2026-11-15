@@ -6,19 +6,35 @@ sidebar:
 ---
 
 Scheduled `update` events aggregate by default into a fixed 60-second window.
-Version **3.0.0** changes the defaults from 2.1.0: the default update
-request body becomes an envelope and its initial delay changes from 5 to 60 seconds.
+Version **4.0.0** keeps the latest event fields at the root and adds
+`aggregated_events` plus `_wpwf` delivery metadata. The 60-second window introduced
+in 3.0.0 remains unchanged; 2.x used a five-second initial delay.
 Immediate delivery, its retries, and create/delete/custom actions retain their
 existing behavior. Already queued `wpwf_send_webhook` jobs remain executable with
 the old body; they are not migrated into stacks. Receivers can therefore see both
 formats while old jobs drain.
+
+## Upgrade from 3.0.0
+
+Read `body.id`, `body.entity`, and `body.action` directly, rather than through
+`body.payload`. Event history stays at `body.aggregated_events`; delivery metadata
+moves to `body._wpwf`. Receivers such as n8n can fetch the resource through the
+same root fields used by legacy and immediate notifications.
+
+Unsealed pending stacks adopt the new format when prepared. Previously accepted
+events whose custom fields collide with the two reserved names retain the 3.0.0
+envelope so their data is not lost. Already sealed 3.0.0
+bodies are never rewritten, including on retry, so receivers must temporarily
+accept the old envelope too or drain those deliveries before upgrading. The whole
+JSON body becomes immutable after the first body-filter pass; before that, the
+latest event and history grow within the fixed window. No database migration is needed.
 
 ## Keep the existing behavior
 
 Call `$webhook->stack_updates( false )` when configuring a webhook to retain the
 flat body, five-second initial delay, and first-pending-payload deduplication.
 Opting out does not turn legacy scheduling into a complete per-event stream.
-Already accepted stacks finish under their stored contract even after opting out.
+Already accepted stacks finish even after opting out.
 Configure this consistently on every request and worker that loads the webhook.
 
 ## Window and identity
@@ -44,27 +60,24 @@ Separate windows may be delivered out of order when an older one retries.
 
 ## Wire format
 
-`payload` is the latest complete notification. `aggregated_events` contains every
-accepted notification, including the latest, in acceptance order. A single-event
-window still uses the envelope and has one entry. Custom fields stay inside each
-payload, so names such as `timestamp` cannot overwrite framework metadata.
+The latest complete notification remains at the root: `action`, `entity`, `id`,
+`rest_url` and custom fields keep their original paths. `aggregated_events` contains
+every accepted notification, including the latest, with its timestamp. `_wpwf`
+contains delivery metadata. A single-event window uses the same format with one entry.
+No fields from earlier notifications are merged into the latest notification.
+
+`_wpwf` and `aggregated_events` are reserved for stacking. Events using these names
+are rejected visibly before acceptance rather than overwritten; rename those custom
+fields or opt out. Other custom names, including `payload`, `timestamp` and
+`delivery_id`, remain untouched at the root.
 
 ```json
 {
-  "schema_version": 1,
-  "delivery_id": 12345,
-  "window": {
-    "opened_at": "2026-11-15T15:00:00Z",
-    "scheduled_for": "2026-11-15T15:01:00Z"
-  },
-  "timestamp": "2026-11-15T15:00:20Z",
-  "payload": {
-    "action": "update",
-    "entity": "meta",
-    "id": 42,
-    "meta_type": "post",
-    "meta_key": "price"
-  },
+  "action": "update",
+  "entity": "meta",
+  "id": 42,
+  "meta_type": "post",
+  "meta_key": "price",
   "aggregated_events": [
     {
       "timestamp": "2026-11-15T15:00:00Z",
@@ -86,20 +99,28 @@ payload, so names such as `timestamp` cannot overwrite framework metadata.
         "meta_key": "price"
       }
     }
-  ]
+  ],
+  "_wpwf": {
+    "schema_version": 2,
+    "delivery_id": 12345,
+    "window": {
+      "opened_at": "2026-11-15T15:00:00Z",
+      "scheduled_for": "2026-11-15T15:01:00Z"
+    },
+    "timestamp": "2026-11-15T15:00:20Z"
+  }
 }
 ```
 
-- `schema_version`: integer `1`, identifying this envelope contract.
-- `delivery_id`: integer ID of the **first Action Scheduler action** created for
+- `_wpwf.schema_version`: integer `2`, identifying the root-field contract.
+- `_wpwf.delivery_id`: integer ID of the **first Action Scheduler action** created for
   this stack. Aggregation keeps that action unchanged. Retries may have new
   scheduler action IDs but retain this original ID in the body. It is not an
   entity ID or WordPress event ID. Receivers should scope deduplication by source
   site and delivery ID, since IDs are not globally unique across installations.
-- `window.opened_at`: acceptance time of the first event.
-- `window.scheduled_for`: initial planned send time and immutable aggregation cutoff.
-- `timestamp`: acceptance time of the latest event.
-- `payload`: latest complete event object, without merging earlier fields.
+- `_wpwf.window.opened_at`: acceptance time of the first event.
+- `_wpwf.window.scheduled_for`: initial planned send time and immutable aggregation cutoff.
+- `_wpwf.timestamp`: acceptance time of the latest event.
 - `aggregated_events`: all `{timestamp, payload}` entries, including the latest.
   Its length gives the event count; there is no redundant count field.
 
@@ -122,11 +143,11 @@ legacy and immediate modes keep their delivery-time enrichment. Historical
 entries are notification contents, not an audit log or reconstructed entity states.
 Upstream WordPress hooks may already suppress events before they reach this queue.
 
-`wpwf_request_body` receives the complete envelope once, immediately before the
+`wpwf_request_body` receives the root event plus additive metadata once, immediately before the
 first attempt. Its identity arguments describe the stack; its payload argument
 is the latest complete event body. Filters must handle this schema or opt out of
 stacking. Ordinary nested JSON objects are exposed as associative PHP arrays for
-filter access such as `$body['payload']['billing']['email']`. Empty objects and
+filter access such as `$body['billing']['email']`. Empty objects and
 objects with list-shaped numeric keys remain `stdClass` to preserve their JSON
 object shape. The resulting JSON is persisted unchanged for retries. `wpwf_headers`
 runs on every attempt, allowing authentication headers to refresh.
