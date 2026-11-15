@@ -8,13 +8,14 @@
     "wp-env:destroy": "wp-env destroy --force",
     "composer:install": "wp-env run cli --env-cwd=wp-content/wpwf-framework composer install --prefer-dist --no-progress",
     "test:phpunit": "wp-env run cli --env-cwd=wp-content/wpwf-framework timeout -k 5 120 vendor/bin/phpunit -c phpunit.xml.dist",
-    "test:integration": "pnpm run wp-env:start && pnpm run composer:install && pnpm run test:ci && pnpm run test:phpunit",
+    "test:integration": "pnpm run wp-env:start && pnpm run composer:install && pnpm run test:ci && pnpm run test:phpunit && pnpm run test:concurrency",
     "preinstall": "npx only-allow pnpm",
     "prepare": "lefthook install",
     "check": "pnpm run phpcs && pnpm run phpstan",
     "phpcs": "wp-env run cli --env-cwd=wp-content/wpwf-framework composer run-script phpcs",
     "phpstan": "wp-env run cli --env-cwd=wp-content/wpwf-framework composer run-script phpstan",
-    "test:ci": "node --test --test-timeout=10000 tests/ci/dependabot-merge.test.cjs"
+    "test:ci": "node --test --test-timeout=10000 tests/ci/dependabot-merge.test.cjs",
+    "test:concurrency": "wp-env run cli --env-cwd=wp-content/wpwf-framework timeout -k 5 90 php tests/concurrent-stacks.php"
   },
   "devDependencies": {
     "@wordpress/env": "11.1.0",

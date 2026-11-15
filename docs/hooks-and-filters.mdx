@@ -82,7 +82,7 @@ See [Notifications](./notifications.mdx) for built-in notification handlers.
 
 ### `wpwf_payload`
 
-Filter webhook payloads before scheduling. Payloads contain event-time fields only; derived fields are added at delivery. Return false to prevent webhook scheduling.
+Filter webhook payloads before scheduling. Payloads contain event-time fields only; derived fields are added at acceptance for stacks, or at delivery for legacy and immediate modes. Return false to prevent webhook scheduling.
 
 **Parameters:**
 - `$payload` (array<string,mixed>) - The webhook payload data
@@ -117,7 +117,14 @@ add_filter( 'wpwf_payload', function ( array $payload, string $entity, int|strin
 
 Filter the webhook request body right before sending.
 
-The framework already enriches `rest_url` at delivery time when possible. Use this filter to override or append additional fields.
+The framework enriches `rest_url` when available. For stacked updates this filter
+receives the [stacking envelope](./update-stacking.mdx), runs once when sealing the
+first attempt, and its resulting JSON is retained for retries. The payload argument
+is the latest complete event object. Header filters still run per attempt.
+Legacy/immediate calls retain their flat body and per-attempt body filtering.
+
+The following example applies only to flat bodies; stacked event fields are captured
+at acceptance and belong in `payload` and `aggregated_events` rather than at the root.
 
 **Parameters:**
 - `$body` (array<string,mixed>) - The full webhook body
@@ -131,6 +138,9 @@ The framework already enriches `rest_url` at delivery time when possible. Use th
 
 ```php
 add_filter( 'wpwf_request_body', function ( array $body, string $action, string $entity, int|string $id ): array {
+    if ( isset( $body['schema_version'] ) ) {
+        return $body;
+    }
     if ( isset( $body['rest_url'] ) ) {
         return $body;
     }
@@ -331,7 +341,8 @@ add_filter( 'wpwf_retry_delay', fn() => 300 );
 
 ## Payload Structure
 
-Example payload (post):
+Legacy/immediate payload (post); scheduled updates wrap these event bodies in the
+[stacking envelope](./update-stacking.mdx):
 
 ```json
 {
@@ -346,7 +357,7 @@ Example payload (post):
 - **Meta**: `meta_type`, `meta_key`
 - **Meta**: `acf_field_key`, `acf_field_name` (if ACF field)
 
-**Derived fields (when available at send time):**
+**Derived fields (at acceptance for stacks, otherwise at send time):**
 - **Post**: `post_type`
 - **Term**: `taxonomy`
 - **User**: `roles` (array)
@@ -362,3 +373,9 @@ Filters are applied in this order:
 4. `wpwf_request_body` - Modify final request body before send
 5. `wpwf_headers` - Customize HTTP headers
 6. `wpwf_excluded_meta` - Filter meta keys (meta webhooks only)
+
+### Internal stacking clock
+
+`wpwf_stack_time` supplies UTC epoch seconds for deterministic stacking tests.
+Production uses `time()`; integrations should not alter it to change window length
+or schedule delivery. The aggregation interval remains fixed at 60 seconds.

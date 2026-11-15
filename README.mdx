@@ -14,8 +14,8 @@ Entity-level webhooks for WordPress using Action Scheduler with optional immedia
 
 - **Delivery mode control** - Choose scheduled async delivery (default) or immediate synchronous first attempt
 - **Action Scheduler dispatch** - 5s initial delay for queued webhooks
-- **Pending deduplication** - Retain the first queued payload per destination, action and entity until delivery.
-- **Entity-aware delivery payloads** - Derives post_type, taxonomy, and roles at send time
+- **Update stacking** - Aggregate scheduled updates in fixed 60-second windows, retaining every accepted payload and a stable delivery ID; opt out to retain legacy pending deduplication.
+- **Entity-aware delivery payloads** - Derives post_type, taxonomy, and roles at acceptance for stacks, or at send time for legacy delivery
 - **Send-time enrichment** - Adds REST URLs when available
 - **ACF integration** - Adds field key/name context to meta changes
 - **Registry pattern** - Extensible webhook system with custom configurations
@@ -134,7 +134,8 @@ See [Hooks and Filters](./docs/hooks-and-filters.mdx) for all available hooks an
 **Data Flow:**
 ```
 WordPress hook → Webhook → Handler::prepare_payload() → Webhook::emit() → Dispatcher
-  ├─ scheduled mode: deduplicate pending jobs → Action Scheduler → HTTP POST
+  ├─ scheduled updates: persistent 60-second stack → Action Scheduler → HTTP POST
+  ├─ other scheduled actions / opt-out: pending deduplication → Action Scheduler → HTTP POST
   └─ immediate mode: send now in current request → HTTP POST
 ```
 
@@ -146,7 +147,13 @@ See [Webhook Statefulness](./docs/webhook-statefulness.mdx) for detailed explana
 
 ## Payload Structure
 
-Example post webhook payload:
+Scheduled updates use the [stacking envelope](./docs/update-stacking.mdx), with
+`payload` for the latest event and `aggregated_events` for all accepted events.
+This default body and timing change targets an unreleased major version. Set
+`stack_updates( false )` to keep the 2.x contract. Existing queued jobs keep their
+original format.
+
+Example legacy or immediate post webhook payload:
 
 ```json
 {
@@ -161,7 +168,7 @@ Example post webhook payload:
 - Meta: `meta_type`, `meta_key`
 - Meta: `acf_field_key`, `acf_field_name` (if ACF field)
 
-**Derived fields (when available at send time):**
+**Derived fields (when available at acceptance for stacks, otherwise at send time):**
 - Post: `post_type`
 - Term: `taxonomy`
 - User: `roles[]`

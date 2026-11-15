@@ -46,6 +46,20 @@ class Dispatcher {
 		$url     = $dispatch_data['url'];
 		$payload = $dispatch_data['payload'];
 
+		$webhook = Webhook_Registry::instance()->get( (string) ( $headers['wpwf-webhook-name'] ?? '' ) );
+		if ( 'update' === $action && null !== $webhook && $webhook->get_stack_updates() ) {
+			$body = array_merge(
+				$this->prepare_delivery_payload( $entity, $id, $payload ),
+				array(
+					'action' => $action,
+					'entity' => $entity,
+					'id'     => $id,
+				)
+			);
+			$this->get_update_stack()->schedule( $url, $entity, $id, $body, $headers );
+			return;
+		}
+
 		$group = sanitize_title( 'wpwf-' . $entity );
 		if ( $this->has_pending_webhook( $url, $action, $entity, $id, $group ) ) {
 			return;
@@ -287,19 +301,7 @@ class Dispatcher {
 		 */
 		$body = apply_filters( 'wpwf_request_body', $body, $action, $entity, $id, $payload, $webhook );
 
-		if ( ! isset( $headers['Content-Type'] ) ) {
-			$headers['Content-Type'] = 'application/json';
-		}
-		$headers = apply_filters( 'wpwf_headers', $headers, $entity, $id, $webhook );
-
-		$args = array(
-			'body'     => wp_json_encode( $body ),
-			'headers'  => $headers,
-			'timeout'  => $webhook->get_timeout(),
-			'blocking' => true,
-		);
-
-		$response = wp_remote_post( $url, $args );
+		$response = $this->perform_request( $url, $entity, $id, (string) wp_json_encode( $body ), $headers, $webhook );
 
 		if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
 			try {
@@ -318,7 +320,86 @@ class Dispatcher {
 	}
 
 	/**
-	 * Prepare the payload for delivery-time enrichment.
+	 * Queue boundary shared by producer and scheduler callbacks.
+	 *
+	 * @return Update_Stack
+	 */
+	public function get_update_stack(): Update_Stack {
+		return new Update_Stack( $this );
+	}
+
+	/**
+	 * Apply the request-body filter once, then persist its exact JSON for all retries.
+	 *
+	 * @param array<string,mixed> $body Stack envelope.
+	 * @param string              $entity Entity type.
+	 * @param int|string          $id Entity ID.
+	 * @param array<string,mixed> $payload Latest event body.
+	 * @param Webhook             $webhook Owning configuration.
+	 * @return string
+	 * @throws WP_Exception If filters produce an invalid or oversized request.
+	 */
+	public function seal_stacked_body( array $body, string $entity, int|string $id, array $payload, Webhook $webhook ): string {
+		$body = apply_filters( 'wpwf_request_body', $body, 'update', $entity, $id, $payload, $webhook );
+		$json = is_array( $body ) ? wp_json_encode( $body ) : false;
+		if ( false === $json || 1048576 < strlen( $json ) ) {
+			throw new WP_Exception( 'webhook_stack_body_invalid' );
+		}
+		return $json;
+	}
+
+	/**
+	 * Deliver an already sealed stack; the stack owns retry scheduling and accounting.
+	 *
+	 * @param string              $url Destination.
+	 * @param string              $entity Entity type.
+	 * @param int|string          $id Entity ID.
+	 * @param string              $json Immutable request JSON.
+	 * @param array<string,mixed> $headers Stored request headers.
+	 * @throws WP_Exception If the destination is blocked or delivery fails.
+	 */
+	public function process_stacked_webhook( string $url, string $entity, int|string $id, string $json, array $headers ): void {
+		$webhook = $this->get_webhook_from_headers( $headers );
+		if ( $this->is_url_blocked( $url ) ) {
+			throw new WP_Exception( 'webhook_url_blocked' );
+		}
+		$response = $this->perform_request( $url, $entity, $id, $json, $headers, $webhook );
+		if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
+			$this->trigger_webhook_failure( $url, $response, $webhook );
+		}
+		Failure::create_fresh()->save( $url );
+		do_action( 'wpwf_webhook_success', $url, json_decode( $json, true ), $response, $webhook );
+	}
+
+	/**
+	 * Share transport and per-attempt header filters without mutating sealed stack bodies.
+	 *
+	 * @param string              $url Destination.
+	 * @param string              $entity Entity type.
+	 * @param int|string          $id Entity ID.
+	 * @param string              $json Encoded request body.
+	 * @param array<string,mixed> $headers Request headers.
+	 * @param Webhook             $webhook Owning configuration.
+	 * @return array<string,mixed>|\WP_Error
+	 */
+	private function perform_request( string $url, string $entity, int|string $id, string $json, array $headers, Webhook $webhook ): array|\WP_Error {
+		if ( ! isset( $headers['Content-Type'] ) ) {
+			$headers['Content-Type'] = 'application/json';
+		}
+		$headers = apply_filters( 'wpwf_headers', $headers, $entity, $id, $webhook );
+
+		$args = array(
+			'body'     => $json,
+			'headers'  => $headers,
+			'timeout'  => $webhook->get_timeout(),
+			'blocking' => true,
+		);
+
+		return wp_remote_post( $url, $args );
+	}
+
+	/**
+	 * Enrich entity hints at the capture time chosen by the delivery mode.
 	 *
 	 * @param string              $entity  The entity type.
 	 * @param int|string          $id      The entity ID.

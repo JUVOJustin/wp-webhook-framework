@@ -20,6 +20,11 @@ abstract class WPWF_Webhook_Test_Case extends WP_UnitTestCase {
 
 		require_once \ABSPATH . 'wp-admin/includes/user.php';
 
+		// These suites pin the legacy contract; stacking scenarios opt in separately.
+		foreach ( \juvo\WP_Webhook_Framework\Service_Provider::get_registry()->get_all() as $webhook ) {
+			$webhook->stack_updates( false );
+		}
+
 		$this->clear_scheduled_webhooks();
 		$this->reset_receiver_logs( true );
 	}

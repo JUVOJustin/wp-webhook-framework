@@ -125,3 +125,17 @@ For detailed action documentation, see [Hooks and Filters](./hooks-and-filters.m
 - `Dispatcher::schedule_retry_if_applicable()` - Schedules retry with backoff
 - `Webhook::calculate_retry_delay()` - Calculates exponential delay
 - `Dispatcher::trigger_webhook_failure()` - Tracks failures, fires actions
+
+## Stacked update retries
+
+[Stacked updates](./update-stacking.mdx) retain the original action's integer
+`delivery_id` and the exact sealed JSON across retries. A retry can have a different
+Action Scheduler ID. New events create later windows and do not overwrite retry
+content or reset its budget. A hard exit after starting an attempt consumes that
+attempt; recovery waits for the scheduler to mark abandoned work failed.
+`max_retries( 0 )` also disables retries after such interruptions.
+
+Overflow rejects the new event through the existing warning/exception path while
+preserving accepted events. Invalid final body filters, removed registrations,
+blocked destinations and exhausted attempts fail without sending and remove the
+stored stack. HTTP delivery failures continue to fire the existing failure hooks.

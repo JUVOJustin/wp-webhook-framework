@@ -75,3 +75,5 @@ Add new docs with an "@" mention to the "AGENTS.md" including a quick explanatio
 Publish through a GitHub Release with a matching SemVer tag after merging and
 passing checks. Composer uses that tag; no source version field needs changing.
 See @README.mdx for the maintainer release procedure. Never publish a standalone tag.
+
+- @docs/update-stacking.mdx - Fixed-window update aggregation, wire schema, opt-out, recovery and limits

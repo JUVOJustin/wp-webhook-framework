@@ -10,3 +10,4 @@ pre-push:
     - run: pnpm run test:ci
     - run: pnpm run check
     - run: pnpm run test:phpunit
+    - run: pnpm run test:concurrency

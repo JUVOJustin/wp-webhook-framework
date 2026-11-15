@@ -18,6 +18,33 @@ namespace juvo\WP_Webhook_Framework;
 abstract class Webhook {
 
 	/**
+	 * Whether scheduled updates share a fixed-window delivery.
+	 *
+	 * @var bool
+	 */
+	private bool $stack_updates = true;
+
+	/**
+	 * Restore legacy first-pending-payload behavior for integrations using the old body.
+	 *
+	 * @param bool $enabled Whether scheduled updates are stacked.
+	 * @return static
+	 */
+	public function stack_updates( bool $enabled ): static {
+		$this->stack_updates = $enabled;
+		return $this;
+	}
+
+	/**
+	 * Whether scheduled updates use the stacking contract.
+	 *
+	 * @return bool
+	 */
+	public function get_stack_updates(): bool {
+		return $this->stack_updates;
+	}
+
+	/**
 	 * Maximum allowed timeout in seconds.
 	 */
 	private const MAX_TIMEOUT = 300;

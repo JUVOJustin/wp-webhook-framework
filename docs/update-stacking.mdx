@@ -1,0 +1,168 @@
+---
+title: Update Stacking
+description: Configure fixed 60-second update windows, consume aggregated payloads, and migrate from legacy delivery.
+sidebar:
+  order: 3
+---
+
+Scheduled `update` events aggregate by default into a fixed 60-second window.
+This is an **unreleased major-version change** from 2.1.0: the default update
+request body becomes an envelope and its initial delay changes from 5 to 60 seconds.
+Immediate delivery, its retries, and create/delete/custom actions retain their
+existing behavior. Already queued `wpwf_send_webhook` jobs remain executable with
+the old body; they are not migrated into stacks. Receivers can therefore see both
+formats while old jobs drain.
+
+## Keep the existing behavior
+
+Call `$webhook->stack_updates( false )` when configuring a webhook to retain the
+flat body, five-second initial delay, and first-pending-payload deduplication.
+Opting out does not turn legacy scheduling into a complete per-event stream.
+Already accepted stacks finish under their stored contract even after opting out.
+Configure this consistently on every request and worker that loads the webhook.
+
+## Window and identity
+
+The first accepted update fixes `opened_at` and `scheduled_for` (60 seconds later).
+Updates at seconds 0, 20 and 59 share a stack; one at second 60 opens another.
+A delayed worker does not extend the old window. Execution depends on the site's
+Action Scheduler runner, so `scheduled_for` is a planned time, not an HTTP timestamp.
+
+Stack identity includes destination URL, registered webhook name and configured
+headers, entity type and ID. Numeric ID `42` and string `"42"` match. Different
+header sets stay separate. Meta events also include `meta_type`, separating post
+and user meta with the same object ID. Different meta keys join the same window
+and are all retained as separate entries. Header filters run later, per attempt;
+their results cannot change already accepted window membership.
+
+Events are ordered by acceptance under the database lock. Their timestamps have
+UTC second precision; array order resolves equal timestamps. No field merging or
+event deduplication occurs inside a stack. Events arriving during delivery belong
+to a later window and cannot be removed when the older delivery is acknowledged.
+Separate windows may be delivered out of order when an older one retries.
+
+## Wire format
+
+`payload` is the latest complete notification. `aggregated_events` contains every
+accepted notification, including the latest, in acceptance order. A single-event
+window still uses the envelope and has one entry. Custom fields stay inside each
+payload, so names such as `timestamp` cannot overwrite framework metadata.
+
+```json
+{
+  "schema_version": 1,
+  "delivery_id": 12345,
+  "window": {
+    "opened_at": "2026-11-15T15:00:00Z",
+    "scheduled_for": "2026-11-15T15:01:00Z"
+  },
+  "timestamp": "2026-11-15T15:00:20Z",
+  "payload": {
+    "action": "update",
+    "entity": "meta",
+    "id": 42,
+    "meta_type": "post",
+    "meta_key": "price"
+  },
+  "aggregated_events": [
+    {
+      "timestamp": "2026-11-15T15:00:00Z",
+      "payload": {
+        "action": "update",
+        "entity": "meta",
+        "id": 42,
+        "meta_type": "post",
+        "meta_key": "title"
+      }
+    },
+    {
+      "timestamp": "2026-11-15T15:00:20Z",
+      "payload": {
+        "action": "update",
+        "entity": "meta",
+        "id": 42,
+        "meta_type": "post",
+        "meta_key": "price"
+      }
+    }
+  ]
+}
+```
+
+- `schema_version`: integer `1`, identifying this envelope contract.
+- `delivery_id`: integer ID of the **first Action Scheduler action** created for
+  this stack. Aggregation keeps that action unchanged. Retries may have new
+  scheduler action IDs but retain this original ID in the body. It is not an
+  entity ID or WordPress event ID. Receivers should scope deduplication by source
+  site and delivery ID, since IDs are not globally unique across installations.
+- `window.opened_at`: acceptance time of the first event.
+- `window.scheduled_for`: initial planned send time and immutable aggregation cutoff.
+- `timestamp`: acceptance time of the latest event.
+- `payload`: latest complete event object, without merging earlier fields.
+- `aggregated_events`: all `{timestamp, payload}` entries, including the latest.
+  Its length gives the event count; there is no redundant count field.
+
+The private persistence key contains a generated token because it must exist
+before scheduling returns an action ID. That key is internal and is never sent
+as `delivery_id`. HTTP headers are not copied into the payload.
+
+## Payloads and filters
+
+Built-in post/term/user notifications do not capture full entity snapshots.
+Enrichment adds `post_type`, `taxonomy`, `roles` and `rest_url` when available.
+Meta notifications include `meta_type`, `meta_key` and optional ACF identifiers;
+they do not automatically include old/new values. Custom emitters and filters
+can add such values, nulls, lists and nested objects. Fetch the current resource
+when the receiver needs authoritative entity state.
+
+`wpwf_payload` runs for every incoming event before aggregation. Returning false
+or null suppresses that event. Stacked mode captures enrichment at acceptance;
+legacy and immediate modes keep their delivery-time enrichment. Historical
+entries are notification contents, not an audit log or reconstructed entity states.
+Upstream WordPress hooks may already suppress events before they reach this queue.
+
+`wpwf_request_body` receives the complete envelope once, immediately before the
+first attempt. Its identity arguments describe the stack; its payload argument
+is the latest complete event body. Filters must handle this schema or opt out of
+stacking. The resulting JSON is persisted unchanged for retries. `wpwf_headers`
+runs on every attempt, allowing authentication headers to refresh.
+
+## Persistence, recovery and limits
+
+Payloads live in non-autoloaded internal WordPress options, outside Action Scheduler
+arguments and the option cache. Per-identity database locks serialize acceptance;
+a separate send lock prevents overlapping HTTP attempts for one stack. Enqueue
+looks up only that stack's action, avoiding hydration of unrelated pending jobs.
+
+Stacking requires MySQL 5.7.5+ or MariaDB 10.1+, named-lock support, and one primary
+MySQL connection for its lock and record operations. Database drop-ins that route
+these operations to different connections or replicas are unsupported. Opt out
+when these requirements cannot be met. No schema migration or custom table is needed.
+
+Limits are 100 accepted events and 256 KiB of JSON per unsealed record, including
+routing metadata. A new event exceeding either limit is rejected visibly with
+`webhook_stack_capacity_exceeded`; already accepted events remain intact. Nothing
+is truncated or silently evicted. The final filtered JSON body is limited to
+1 MiB; invalid or oversized filter output fails the action before HTTP. Direct
+dispatcher calls throw `WP_Exception`; `Webhook::emit()` uses its existing warning
+path. Monitor warnings and failed scheduler actions, especially for high-volume entities.
+
+A recovery job visits up to 100 surviving records per minute, with a cursor to
+avoid starving later records. It repairs missing scheduling and retries abandoned
+attempts after Action Scheduler marks them failed. A canceled action with a live
+record is also recovered; canceling only the scheduler action does not discard
+accepted work. Recovery needs a functioning scheduler and database.
+
+Configured retry limits, backoff and URL blocking apply. Stacking computes the
+retry delay before each attempt to persist recovery timing, even if that attempt
+eventually succeeds. Each started HTTP attempt
+consumes the retry budget before sending, so a process crash cannot retry forever.
+With `max_retries( 0 )`, an interrupted attempt is not sent again. Normal success
+and terminal failure remove the stored payload; corrupt or temporarily inaccessible
+records remain for diagnosis/recovery and emit warnings. A stopped queue retains
+accepted records and can grow; keep it running and monitor backlog/storage.
+
+An HTTP request may succeed before its sender crashes or loses the response.
+Redelivery is therefore possible: receivers must be idempotent. Stable IDs and
+frozen retry bodies support deduplication; they do not provide exactly-once HTTP.
+See [failure handling](./failure-handling.mdx) and [testing](./testing.mdx).

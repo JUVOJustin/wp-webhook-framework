@@ -145,6 +145,12 @@ class Service_Provider {
 			6
 		);
 
+		$stacks = $instance->dispatcher->get_update_stack();
+		add_action( Update_Stack::HOOK, array( $stacks, 'process' ), 10, 1 );
+		add_action( Update_Stack::RECOVERY_HOOK, array( $stacks, 'recover' ) );
+		add_action( 'action_scheduler_completed_action', array( $stacks, 'after_action' ), 10, 1 );
+		add_action( 'action_scheduler_failed_execution', array( $stacks, 'after_action' ), 10, 1 );
+
 		// Defer webhook and notification registration until 'init' to avoid race conditions.
 		// This allows other plugins to hook into 'wpwf_register_webhooks' and
 		// 'wpwf_register_notifications' actions before they are fired.
@@ -176,6 +182,7 @@ class Service_Provider {
 	 * Registers webhooks and notification handlers during WordPress initialization.
 	 */
 	public function on_init(): void {
+		$this->dispatcher->get_update_stack()->register_recovery();
 		$this->register_available_notifications();
 		$this->register_webhooks();
 	}
