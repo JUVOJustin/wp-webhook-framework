@@ -723,6 +723,18 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		};
 		try {
 			do_action( 'action_scheduler_failed_action', (int) $recovery[0], 300 );
+			for ( $cycle = 0; $cycle < 3; ++$cycle ) {
+				$wake = as_get_scheduled_actions(
+					array(
+						'hook'   => Update_Stack::RECOVERY_HOOK,
+						'status' => ActionScheduler_Store::STATUS_PENDING,
+					),
+					'ids'
+				);
+				$this->assertCount( 1, $wake );
+				$this->run_action( (int) $wake[0] );
+				$this->assertSame( ActionScheduler_Store::STATUS_COMPLETE, ActionScheduler::store()->get_status( (int) $wake[0] ) );
+			}
 			$this->assertFalse( Stack_Store::is_supported() );
 			$this->emit_update( array( 'value' => 'legacy' ) );
 			$this->assertSame( array(), $this->pending() );

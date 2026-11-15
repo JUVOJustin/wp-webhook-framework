@@ -314,11 +314,14 @@ final class Update_Stack {
 	}
 
 	/**
-	 * Restore a recovery pass killed before it could arm its successor.
+	 * Retain recovery after interrupted work or a completed database-fallback wake-up.
 	 *
-	 * @param int $action_id Action marked failed by the runner or timeout cleaner.
+	 * @param int $action_id Finished recovery action.
 	 */
-	public function after_recovery_failure( int $action_id ): void {
+	public function after_recovery( int $action_id ): void {
+		if ( 'action_scheduler_completed_action' === current_filter() && Stack_Store::is_supported() ) {
+			return;
+		}
 		try {
 			if ( self::RECOVERY_HOOK !== ActionScheduler::store()->fetch_action( $action_id )->get_hook() ) {
 				return;
@@ -365,6 +368,10 @@ final class Update_Stack {
 
 	/** Recover at most 100 records per pass and retire when no accepted work remains. */
 	public function recover(): void {
+		if ( ! Stack_Store::is_supported() ) {
+			// Re-arm after completion: a running action prevents its unique successor being stored.
+			return;
+		}
 		$this->store->locked(
 			'recovery-sweep',
 			function (): void {

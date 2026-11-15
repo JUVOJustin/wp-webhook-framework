@@ -13,7 +13,7 @@ Entity-level webhooks for WordPress using Action Scheduler with optional immedia
 ## Features
 
 - **Delivery mode control** - Choose scheduled async delivery (default) or immediate synchronous first attempt
-- **Action Scheduler dispatch** - 5s initial delay for queued webhooks
+- **Action Scheduler dispatch** - 60s windows for stacked updates; 5s initial delay for other queued webhooks
 - **Update stacking** - Aggregate scheduled updates in fixed 60-second windows, retaining every accepted payload and a stable delivery ID; opt out to retain legacy pending deduplication.
 - **Entity-aware delivery payloads** - Derives post_type, taxonomy, and roles at acceptance for stacks, or at send time for legacy delivery
 - **Send-time enrichment** - Adds REST URLs when available
@@ -149,7 +149,7 @@ See [Webhook Statefulness](./docs/webhook-statefulness.mdx) for detailed explana
 
 Scheduled updates use the [stacking envelope](./docs/update-stacking.mdx), with
 `payload` for the latest event and `aggregated_events` for all accepted events.
-This default body and timing change targets an unreleased major version. Set
+Version 3.0.0 changes the default update body and initial delay. Set
 `stack_updates( false )` to keep the 2.x contract. Existing queued jobs keep their
 original format.
 

@@ -6,7 +6,7 @@ sidebar:
 ---
 
 Scheduled `update` events aggregate by default into a fixed 60-second window.
-This is an **unreleased major-version change** from 2.1.0: the default update
+Version **3.0.0** changes the defaults from 2.1.0: the default update
 request body becomes an envelope and its initial delay changes from 5 to 60 seconds.
 Immediate delivery, its retries, and create/delete/custom actions retain their
 existing behavior. Already queued `wpwf_send_webhook` jobs remain executable with
@@ -145,13 +145,15 @@ as Query Monitor (`db.php`), HyperDB and LudicrousDB conservatively fall back to
 through stale reads. Older database servers also use legacy dispatch. This means
 receivers must support flat bodies on those installations. Existing stacks are
 retained and fail visibly if the database becomes unsupported; drain them before
-changing database infrastructure. Failed recovery keeps a scheduler wake-up alive
-using native uniqueness, without reading or modifying stack payloads through an
+changing database infrastructure. Recovery wake-ups complete without processing stacks while the connection is unsupported,
+then schedule a unique successor after completion. This keeps recovery alive without reading or modifying stack payloads through an
 unsupported connection. After restoring the standard database class, that wake-up
 resumes recovery even if no new update is emitted. Query Monitor is not allowlisted:
 the class guard is deliberately conservative, including non-routing subclasses.
 MariaDB's legacy `5.5.5-` compatibility prefix is stripped before checking its
-actual server version. No schema migration or custom table is needed.
+actual server version. If the server disables `GET_LOCK`, acceptance fails visibly;
+configure `stack_updates( false )` on that installation. No schema migration or
+custom table is needed.
 
 Limits are 100 accepted events and 256 KiB of JSON per unsealed record, including
 routing metadata. If an otherwise valid event would overflow a window, it opens
@@ -181,7 +183,9 @@ retry delay before each attempt to persist recovery timing, even if that attempt
 eventually succeeds. Each preparation/delivery attempt is counted and persisted before consumer body
 and retry-delay filters run, so a fatal body filter also consumes the retry budget.
 An interruption before preparation finishes uses a 300-second recovery delay;
-successful preparation replaces this with the configured backoff.
+successful preparation replaces this with the configured backoff. The
+`wpwf-retry-count` header counts preparation attempts too, so it may be non-zero
+on the first HTTP request after an interrupted preparation.
 With `max_retries( 0 )`, an interrupted attempt is not sent again. Normal success
 and terminal failure remove the stored payload; corrupt or temporarily inaccessible
 records remain for diagnosis/recovery and produce error logs. Completion-callback
@@ -194,8 +198,9 @@ Each stack uses the same `wpwf-stacks` scheduler group. Identity locks plus exac
 argument lookup prevent duplicate scheduling without permanent per-window group
 rows or dependence on version-specific native uniqueness rules.
 
-Before removing the library, drain accepted stacks or deliberately remove their
+Before removing the library or downgrading to 2.x, drain accepted stacks or deliberately remove their
 internal records and queued actions as part of the consuming plugin's cleanup.
+Version 2.x cannot process stack records, so downgrading with live stacks strands them.
 The recovery action is not recurring, so removal cannot leave an endless recurring
 job; stored payloads are deliberately not silently deleted on deactivation.
 
