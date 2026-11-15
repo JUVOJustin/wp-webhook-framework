@@ -227,7 +227,7 @@ try {
 	$response = wp_remote_post( 'http://tests-wordpress/index.php?rest_route=/wpwf-test/v1/logs' );
 	$logs     = json_decode( wp_remote_retrieve_body( $response ), true )['logs'] ?? array();
 	$received = array_values( array_filter( $logs, static fn( array $log ): bool => $name === $log['webhook_name'] ) );
-	wpwf_require( 1 === count( $received ) && 'latest' === $received[0]['body']['version'] && count( $received[0]['body']['aggregated_events'] ) === $worker_count + 1 && $original_id === $received[0]['body']['_wpwf']['delivery_id'], 'Receiver did not get one complete aggregated notification with the original action ID.' );
+	wpwf_require( 1 === count( $received ) && 'latest' === $received[0]['body']['version'] && count( $received[0]['body']['aggregated_events'] ) === $worker_count + 1 && (string) $original_id === $received[0]['headers']['wpwf-delivery-id'], 'Receiver did not get one complete aggregated notification with the original action ID.' );
 	echo "PASS: concurrent writers plus recovery preserved every event, one action and original delivery ID.\n";
 
 	$dispatcher->schedule( 'update', 'custom', $run_id, $url, array( 'version' => 'crash' ), $webhook->get_headers() );
@@ -262,7 +262,7 @@ try {
 	$logs     = json_decode( wp_remote_retrieve_body( $response ), true )['logs'] ?? array();
 	$received = array_values( array_filter( $logs, static fn( array $log ): bool => $name === $log['webhook_name'] && 'crash' === ( $log['body']['version'] ?? '' ) ) );
 	wpwf_require( 2 === count( $received ), 'Expected the acknowledged HTTP request and its recovery redelivery.' );
-	wpwf_require( $received[0]['raw_body'] === $received[1]['raw_body'] && $original_id === $received[1]['body']['_wpwf']['delivery_id'], 'Recovery changed the body or original ID.' );
+	wpwf_require( $received[0]['raw_body'] === $received[1]['raw_body'] && (string) $original_id === $received[1]['headers']['wpwf-delivery-id'], 'Recovery changed the body or original ID.' );
 	wpwf_require( null === $store->get( $key ), 'Recovered delivery state was not removed.' );
 	echo "PASS: hard exit after HTTP recovered with identical JSON and original delivery ID.\n";
 	$webhook->max_retries( 0 );

@@ -188,6 +188,10 @@ add_filter( 'wpwf_url', function ( string $url, string $entity, int|string $id )
 
 ### `wpwf_headers`
 
+For stacked deliveries, `wpwf-delivery-id`, `wpwf-window-opened-at` and
+`wpwf-window-closed-at` are applied after this filter. They cannot be removed or
+changed, including through differently cased names. Other headers remain filterable.
+
 Filter HTTP headers before sending webhook requests.
 
 **Parameters:**
@@ -339,7 +343,7 @@ add_filter( 'wpwf_retry_delay', fn() => 300 );
 ## Payload Structure
 
 Event fields (post) remain at the root in every delivery mode. Scheduled updates
-add `aggregated_events` and `_wpwf`; see the [stacking format](./update-stacking.mdx):
+add `timestamp` and flat `aggregated_events`; see the [stacking format](./update-stacking.mdx):
 
 ```json
 {

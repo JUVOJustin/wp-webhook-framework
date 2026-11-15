@@ -351,19 +351,20 @@ class Dispatcher {
 	/**
 	 * Deliver an already sealed stack; the stack owns retry scheduling and accounting.
 	 *
-	 * @param string              $url Destination.
-	 * @param string              $entity Entity type.
-	 * @param int|string          $id Entity ID.
-	 * @param string              $json Immutable request JSON.
-	 * @param array<string,mixed> $headers Stored request headers.
+	 * @param string               $url Destination.
+	 * @param string               $entity Entity type.
+	 * @param int|string           $id Entity ID.
+	 * @param string               $json Immutable request JSON.
+	 * @param array<string,mixed>  $headers Stored request headers.
+	 * @param array<string,string> $delivery_headers Immutable stack metadata, applied after filters.
 	 * @throws WP_Exception If the destination is blocked or delivery fails.
 	 */
-	public function process_stacked_webhook( string $url, string $entity, int|string $id, string $json, array $headers ): void {
+	public function process_stacked_webhook( string $url, string $entity, int|string $id, string $json, array $headers, array $delivery_headers = array() ): void {
 		$webhook = $this->get_webhook_from_headers( $headers );
 		if ( $this->is_url_blocked( $url ) ) {
 			throw new WP_Exception( 'webhook_url_blocked' );
 		}
-		$response = $this->perform_request( $url, $entity, $id, $json, $headers, $webhook );
+		$response = $this->perform_request( $url, $entity, $id, $json, $headers, $webhook, $delivery_headers );
 		if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
 			try {
 				$this->trigger_webhook_failure( $url, $response, $webhook );
@@ -380,19 +381,27 @@ class Dispatcher {
 	/**
 	 * Share transport and per-attempt header filters without mutating sealed stack bodies.
 	 *
-	 * @param string              $url Destination.
-	 * @param string              $entity Entity type.
-	 * @param int|string          $id Entity ID.
-	 * @param string              $json Encoded request body.
-	 * @param array<string,mixed> $headers Request headers.
-	 * @param Webhook             $webhook Owning configuration.
+	 * @param string               $url Destination.
+	 * @param string               $entity Entity type.
+	 * @param int|string           $id Entity ID.
+	 * @param string               $json Encoded request body.
+	 * @param array<string,mixed>  $headers Request headers.
+	 * @param Webhook              $webhook Owning configuration.
+	 * @param array<string,string> $delivery_headers Immutable stack metadata, applied after filters.
 	 * @return array<string,mixed>|\WP_Error
 	 */
-	private function perform_request( string $url, string $entity, int|string $id, string $json, array $headers, Webhook $webhook ): array|\WP_Error {
+	private function perform_request( string $url, string $entity, int|string $id, string $json, array $headers, Webhook $webhook, array $delivery_headers = array() ): array|\WP_Error {
 		if ( ! isset( $headers['Content-Type'] ) ) {
 			$headers['Content-Type'] = 'application/json';
 		}
 		$headers = apply_filters( 'wpwf_headers', $headers, $entity, $id, $webhook );
+		// HTTP names are case-insensitive: filters cannot remove, replace or duplicate delivery identity.
+		foreach ( array_keys( $headers ) as $name ) {
+			if ( isset( $delivery_headers[ strtolower( (string) $name ) ] ) ) {
+				unset( $headers[ $name ] );
+			}
+		}
+		$headers = array_merge( $headers, $delivery_headers );
 
 		$args = array(
 			'body'     => $json,
