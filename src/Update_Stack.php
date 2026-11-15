@@ -278,6 +278,7 @@ final class Update_Stack {
 	/** Keep a bounded recovery pass scheduled while this framework is registered. */
 	public function register_recovery(): void {
 		if ( function_exists( 'as_has_scheduled_action' ) && ActionScheduler::is_initialized() && ! as_has_scheduled_action( self::RECOVERY_HOOK, array(), 'wpwf' ) ) {
+			// @phpstan-ignore booleanNot.alwaysTrue (Another process can enqueue between these database reads.)
 			if ( 0 === as_schedule_recurring_action( time() + 60, 60, self::RECOVERY_HOOK, array(), 'wpwf', true ) && ! as_has_scheduled_action( self::RECOVERY_HOOK, array(), 'wpwf' ) ) {
 				wp_trigger_error( __METHOD__, 'webhook_stack_recovery_schedule_failed' );
 			}
