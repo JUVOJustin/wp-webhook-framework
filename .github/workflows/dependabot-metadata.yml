@@ -24,9 +24,9 @@ jobs:
       # Verify metadata without checking out or executing PR-controlled code.
       - name: Verify Dependabot update metadata
         id: metadata
-        uses: dependabot/fetch-metadata@21025c705c08248db411dc16f3619e6b5f9ea21a # v2
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
       - name: Record eligibility on this exact commit
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
         with:
