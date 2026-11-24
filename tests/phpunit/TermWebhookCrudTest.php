@@ -35,6 +35,7 @@ final class TermWebhookCrudTest extends WPWF_Webhook_Test_Case {
 		$this->assertSame( $this->get_receiver_webhook_url( 'primary-term' ), $request['url'] );
 		$this->assertSame( 'create', $request['body']['action'] );
 		$this->assertSame( 'category', $request['body']['taxonomy'] );
+		$this->assertSame( 'created-category', $request['body']['slug'] );
 		$this->assertStringContainsString( '/wp/v2/categories/' . $term_id, $request['body']['rest_url'] );
 
 		$this->reset_captured_requests();
@@ -44,6 +45,7 @@ final class TermWebhookCrudTest extends WPWF_Webhook_Test_Case {
 			'category',
 			array(
 				'name' => 'Updated category',
+				'slug' => 'published-slug',
 			)
 		);
 
@@ -56,6 +58,7 @@ final class TermWebhookCrudTest extends WPWF_Webhook_Test_Case {
 		$request = $this->get_captured_request_by_webhook_name( 'term' );
 		$this->assertSame( 'update', $request['body']['action'] );
 		$this->assertSame( 'category', $request['body']['taxonomy'] );
+		$this->assertSame( 'published-slug', $request['body']['slug'] );
 
 		$this->reset_captured_requests();
 
@@ -71,5 +74,7 @@ final class TermWebhookCrudTest extends WPWF_Webhook_Test_Case {
 		$this->assertSame( 'delete', $request['body']['action'] );
 		$this->assertSame( 'term', $request['body']['entity'] );
 		$this->assertSame( $term_id, $request['body']['id'] );
+		$this->assertSame( 'category', $request['body']['taxonomy'] );
+		$this->assertSame( 'published-slug', $request['body']['slug'] );
 	}
 }

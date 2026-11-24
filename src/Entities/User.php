@@ -5,6 +5,8 @@
  * @package juvo\WP_Webhook_Framework\Entities
  */
 
+declare(strict_types=1);
+
 namespace juvo\WP_Webhook_Framework\Entities;
 
 use WP_User;
@@ -19,13 +21,22 @@ class User extends Entity_Handler {
 	/**
 	 * Prepare payload for a user.
 	 *
-	 * Persists minimal event context for async delivery.
+	 * Capture the roles and login name while the entity is available.
 	 *
-	 * @param int $user_id The user ID.
+	 * @param int          $user_id The user ID.
+	 * @param WP_User|null $user    Object retained by the event hook.
 	 * @return array<string,mixed> The prepared payload data.
 	 */
-	public function prepare_payload( int $user_id ): array {
-		return array();
+	public function prepare_payload( int $user_id, ?WP_User $user = null ): array {
+		$user ??= get_userdata( $user_id );
+		if ( ! ( $user instanceof WP_User ) ) {
+			return array();
+		}
+
+		return array(
+			'roles'    => array_values( $user->roles ),
+			'username' => $user->user_login,
+		);
 	}
 
 	/**

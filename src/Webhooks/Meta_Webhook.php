@@ -107,6 +107,8 @@ class Meta_Webhook extends Webhook {
 		add_action( 'deleted_post_meta', array( $this, 'on_deleted_post_meta' ), 10, 4 );
 		add_action( 'deleted_term_meta', array( $this, 'on_deleted_term_meta' ), 10, 4 );
 		add_action( 'deleted_user_meta', array( $this, 'on_deleted_user_meta' ), 10, 4 );
+		add_action( 'added_user_meta', array( $this, 'on_saved_user_capabilities' ), 10, 4 );
+		add_action( 'updated_user_meta', array( $this, 'on_saved_user_capabilities' ), 10, 4 );
 
 		add_filter(
 			'acf/update_value',
@@ -287,6 +289,24 @@ class Meta_Webhook extends Webhook {
 	}
 
 	/**
+	 * Roles can only be read once WordPress has written and invalidated the capabilities cache.
+	 *
+	 * @param int    $meta_id   The persisted meta row.
+	 * @param int    $object_id The user whose roles changed.
+	 * @param string $meta_key  The site-specific capabilities key.
+	 * @param mixed  $value     The stored capability map.
+	 */
+	public function on_saved_user_capabilities( int $meta_id, int $object_id, string $meta_key, mixed $value ): void {
+		global $wpdb;
+		if ( $wpdb->get_blog_prefix() . 'capabilities' !== $meta_key || $this->meta_handler->is_meta_key_excluded( $meta_key, 'user', $object_id ) ) {
+			return;
+		}
+
+		$action = empty( $value ) && 'updated_user_meta' === current_action() ? 'delete' : 'update';
+		$this->emit_meta_change( $action, 'user', $object_id, $meta_key );
+	}
+
+	/**
 	 * Handle user meta deletion event.
 	 *
 	 * @param mixed  $meta_ids   The meta IDs.
@@ -315,14 +335,7 @@ class Meta_Webhook extends Webhook {
 
 		self::unmark_as_processed( $meta_type, $object_id, $meta_key );
 
-		if ( $this->emission_mode->includes_meta() ) {
-			$payload = $this->meta_handler->prepare_payload( $meta_type, $object_id, $meta_key );
-			$this->emit( 'delete', 'meta', $object_id, $payload );
-		}
-
-		if ( $this->emission_mode->includes_entity() ) {
-			$this->trigger_entity_update( $meta_type, $object_id );
-		}
+		$this->emit_meta_change( 'delete', $meta_type, $object_id, $meta_key );
 	}
 
 	/**
@@ -357,6 +370,12 @@ class Meta_Webhook extends Webhook {
 	 * @param mixed  $old_value  The old value.
 	 */
 	private function on_meta_update( string $meta_type, int $object_id, string $meta_key, mixed $new_value, mixed $old_value = null ): void {
+		global $wpdb;
+		if ( 'user' === $meta_type && $wpdb->get_blog_prefix() . 'capabilities' === $meta_key ) {
+			// Both WordPress and ACF can reach this point before the capability map is persisted.
+			return;
+		}
+
 		// No change, do nothing (ALWAYS use loose equality for value comparison)
 		if (
 			( empty( $new_value ) && empty( $old_value ) )
@@ -390,7 +409,18 @@ class Meta_Webhook extends Webhook {
 
 		$action = $is_deletion ? 'delete' : 'update';
 
-		// Emit meta-level webhook when mode includes meta emission
+		$this->emit_meta_change( $action, $meta_type, $object_id, $meta_key );
+	}
+
+	/**
+	 * Route a single change to the configured meta and parent webhooks.
+	 *
+	 * @param string $action    Update or delete.
+	 * @param string $meta_type Parent entity type.
+	 * @param int    $object_id Parent entity ID.
+	 * @param string $meta_key  Changed meta key.
+	 */
+	private function emit_meta_change( string $action, string $meta_type, int $object_id, string $meta_key ): void {
 		if ( $this->emission_mode->includes_meta() ) {
 			$payload = $this->meta_handler->prepare_payload( $meta_type, $object_id, $meta_key );
 			$this->emit( $action, 'meta', $object_id, $payload );

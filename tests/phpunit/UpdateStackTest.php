@@ -710,6 +710,71 @@ final class UpdateStackTest extends WPWF_Webhook_Test_Case {
 		$this->assertSame( str_repeat( 'b', 140000 ), $requests[1]['body']['large'] );
 	}
 
+	/**
+	 * Cover the first retained event and the complete stacked history.
+	 *
+	 * @return array<string,array{bool}> Scheduled modes.
+	 */
+	public static function role_change_modes(): array {
+		return array(
+			'legacy'  => array( false ),
+			'stacked' => array( true ),
+		);
+	}
+
+	/**
+	 * Role metadata reaches both receivers after WordPress commits its capability map.
+	 *
+	 * @dataProvider role_change_modes
+	 * @param bool $stack_updates Whether to collect update history.
+	 */
+	public function test_role_change_sends_committed_roles( bool $stack_updates ): void {
+		// Exclude setup writes so request-local deduplication does not mask the first role update.
+		add_filter( 'wpwf_excluded_meta', '__return_true' );
+		try {
+			$user = self::factory()->user->create_and_get(
+				array(
+					'role'       => 'subscriber',
+					'user_login' => 'role-change-fixture',
+				)
+			);
+		} finally {
+			remove_filter( 'wpwf_excluded_meta', '__return_true' );
+		}
+
+		$this->clear_scheduled_webhooks();
+		$meta          = Service_Provider::get_registry()->get( 'meta' );
+		$user_webhook  = Service_Provider::get_registry()->get( 'user' );
+		$original_mode = $meta->get_emission_mode();
+		$meta->emission_mode( juvo\WP_Webhook_Framework\Webhooks\Meta_Emission_Mode::BOTH )->stack_updates( $stack_updates );
+		$user_webhook->stack_updates( $stack_updates );
+		try {
+			$user->set_role( 'editor' );
+			if ( $stack_updates ) {
+				$this->now += 60;
+				foreach ( $this->pending() as $id ) {
+					$this->run_action( $id );
+				}
+			} else {
+				$this->run_scheduled_webhooks();
+			}
+
+			foreach ( array( 'user', 'meta' ) as $name ) {
+				$request = $this->get_captured_request_by_webhook_name( $name );
+				$body    = $request['body'];
+				$events  = $stack_updates ? $body['aggregated_events'] : array( $body );
+				$this->assertNotEmpty( $events );
+				foreach ( $events as $event ) {
+					$this->assertSame( array( 'editor' ), $event['roles'] );
+					$this->assertSame( 'role-change-fixture', $event['username'] );
+				}
+			}
+		} finally {
+			$meta->emission_mode( $original_mode )->stack_updates( false );
+			$user_webhook->stack_updates( false );
+		}
+	}
+
 	/** Real meta entity-mode saves can exceed the per-window limit without losing notifications. */
 	public function test_meta_entity_save_with_more_than_100_fields(): void {
 		$post_id = self::factory()->post->create();

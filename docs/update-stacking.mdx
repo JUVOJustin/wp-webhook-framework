@@ -80,6 +80,8 @@ Other custom fields, including `_wpwf`, `payload` and `delivery_id`, remain unto
   "entity": "meta",
   "id": 42,
   "meta_type": "post",
+  "post_type": "product",
+  "slug": "spring-collection",
   "meta_key": "price",
   "timestamp": "2026-11-15T15:00:20Z",
   "aggregated_events": [
@@ -88,6 +90,8 @@ Other custom fields, including `_wpwf`, `payload` and `delivery_id`, remain unto
       "entity": "meta",
       "id": 42,
       "meta_type": "post",
+      "post_type": "product",
+      "slug": "spring-collection",
       "meta_key": "title",
       "timestamp": "2026-11-15T15:00:00Z"
     },
@@ -96,6 +100,8 @@ Other custom fields, including `_wpwf`, `payload` and `delivery_id`, remain unto
       "entity": "meta",
       "id": 42,
       "meta_type": "post",
+      "post_type": "product",
+      "slug": "spring-collection",
       "meta_key": "price",
       "timestamp": "2026-11-15T15:00:20Z"
     }
@@ -130,10 +136,8 @@ The private storage token is never exposed. The body has no generated `_wpwf`,
 
 ## Payloads and filters
 
-Built-in post/term/user notifications do not capture full entity snapshots.
-Enrichment adds `post_type`, `taxonomy`, `roles` and `rest_url` when available.
-Meta notifications include `meta_type`, `meta_key` and optional ACF identifiers;
-they do not automatically include old/new values. Custom emitters and filters
+Each built-in event carries its [default entity fields](./hooks-and-filters.mdx#payload-structure).
+Meta notifications also include `meta_type` and `meta_key`. Custom emitters and filters
 can add such values, nulls, lists and nested objects. Fetch the current resource
 when the receiver needs authoritative entity state.
 

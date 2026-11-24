@@ -36,7 +36,6 @@ class Term_Webhook extends Webhook {
 	public function __construct( string $name = 'term' ) {
 		parent::__construct( $name );
 
-		// Get dispatcher from registry
 		$this->term_handler = new Term();
 	}
 
@@ -46,7 +45,7 @@ class Term_Webhook extends Webhook {
 	public function init(): void {
 		add_action( 'created_term', array( $this, 'on_created_term' ), 10, 3 );
 		add_action( 'edited_term', array( $this, 'on_edited_term' ), 10, 3 );
-		add_action( 'delete_term', array( $this, 'on_deleted_term' ), 10, 3 );
+		add_action( 'delete_term', array( $this, 'on_deleted_term' ), 10, 4 );
 	}
 
 	/**
@@ -76,12 +75,13 @@ class Term_Webhook extends Webhook {
 	/**
 	 * Handle term deletion event.
 	 *
-	 * @param int    $term_id  The term ID.
-	 * @param int    $tt_id    The term taxonomy ID.
-	 * @param string $taxonomy The taxonomy name.
+	 * @param int           $term_id  The term ID.
+	 * @param int           $tt_id    The term taxonomy ID.
+	 * @param string        $taxonomy The taxonomy name.
+	 * @param \WP_Term|null $term     The copy retained by WordPress at deletion.
 	 */
-	public function on_deleted_term( int $term_id, int $tt_id, string $taxonomy ): void {
-		$payload = $this->term_handler->prepare_payload( $term_id );
+	public function on_deleted_term( int $term_id, int $tt_id, string $taxonomy, ?\WP_Term $term = null ): void {
+		$payload = $this->term_handler->prepare_payload( $term_id, $term ) + array( 'taxonomy' => $taxonomy );
 		$this->emit( 'delete', 'term', $term_id, $payload );
 	}
 

@@ -38,6 +38,38 @@ final class WebhookFilterTest extends WPWF_Webhook_Test_Case {
 		}
 	}
 
+	/** A receiver can exclude the login before even an immediate user event leaves WordPress. */
+	public function test_payload_filter_can_remove_username_from_immediate_delivery(): void {
+		$user_id = self::factory()->user->create(
+			array(
+				'user_login' => 'filtered-login',
+				'role'       => 'author',
+			)
+		);
+		$mode    = static fn( string $mode, string $name ): string => 'user' === $name ? Delivery_Mode::IMMEDIATE->value : $mode;
+		$filter  = static function ( array $payload ): array {
+			unset( $payload['username'] );
+			return $payload;
+		};
+
+		add_filter( 'wpwf_delivery_mode', $mode, 10, 2 );
+		add_filter( 'wpwf_payload', $filter );
+		try {
+			wp_update_user(
+				array(
+					'ID'           => $user_id,
+					'display_name' => 'Filtered author',
+				)
+			);
+			$request = $this->get_captured_request_by_webhook_name( 'user' );
+			$this->assertSame( array( 'author' ), $request['body']['roles'] );
+			$this->assertArrayNotHasKey( 'username', $request['body'] );
+		} finally {
+			remove_filter( 'wpwf_delivery_mode', $mode );
+			remove_filter( 'wpwf_payload', $filter );
+		}
+	}
+
 	/**
 	 * Ensures invalid payload filter output emits a warning and skips delivery.
 	 */

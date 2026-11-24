@@ -27,7 +27,8 @@ final class UserWebhookCrudTest extends WPWF_Webhook_Test_Case {
 
 		$user_id = self::factory()->user->create(
 			array(
-				'role' => 'editor',
+				'role'       => 'editor',
+				'user_login' => 'fixture-editor',
 			)
 		);
 
@@ -52,6 +53,8 @@ final class UserWebhookCrudTest extends WPWF_Webhook_Test_Case {
 		$this->assertSame( $this->get_receiver_webhook_url( 'primary-user' ), $request['url'] );
 		$this->assertSame( 'create', $request['body']['action'] );
 		$this->assertSame( array( 'editor' ), $request['body']['roles'] );
+		$this->assertSame( 'fixture-editor', $request['body']['username'] );
+		$this->assertArrayNotHasKey( 'slug', $request['body'] );
 		$this->assertStringContainsString( '/wp/v2/users/' . $user_id, $request['body']['rest_url'] );
 
 		$this->reset_captured_requests();
@@ -78,6 +81,8 @@ final class UserWebhookCrudTest extends WPWF_Webhook_Test_Case {
 		)[0];
 		$this->assertSame( 'update', $request['body']['action'] );
 		$this->assertSame( array( 'editor' ), $request['body']['roles'] );
+		$this->assertSame( 'fixture-editor', $request['body']['username'] );
+		$this->assertArrayNotHasKey( 'slug', $request['body'] );
 
 		$this->reset_captured_requests();
 
@@ -99,5 +104,14 @@ final class UserWebhookCrudTest extends WPWF_Webhook_Test_Case {
 		$this->assertSame( 'delete', $request['body']['action'] );
 		$this->assertSame( 'user', $request['body']['entity'] );
 		$this->assertSame( $user_id, $request['body']['id'] );
+		$this->assertSame( array( 'editor' ), $request['body']['roles'] );
+		$this->assertSame( 'fixture-editor', $request['body']['username'] );
+		$this->assertArrayNotHasKey( 'slug', $request['body'] );
+
+		$meta_request = $this->get_captured_request_by_webhook_name( 'meta' );
+		$this->assertSame( 'delete', $meta_request['body']['action'] );
+		$this->assertSame( 'user', $meta_request['body']['meta_type'] );
+		$this->assertSame( 'fixture-editor', $meta_request['body']['username'] );
+		$this->assertArrayNotHasKey( 'slug', $meta_request['body'] );
 	}
 }
