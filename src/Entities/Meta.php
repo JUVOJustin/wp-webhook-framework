@@ -5,6 +5,8 @@
  * @package juvo\WP_Webhook_Framework\Entities
  */
 
+declare(strict_types=1);
+
 namespace juvo\WP_Webhook_Framework\Entities;
 
 /**
@@ -87,7 +89,7 @@ class Meta extends Entity_Handler {
 		 * @param string        $meta_type     The meta type (post, term, user).
 		 * @param int           $object_id     The object ID.
 		 */
-		return apply_filters(
+		return (bool) apply_filters(
 			'wpwf_excluded_meta',
 			$excluded,
 			$meta_key,
@@ -109,7 +111,7 @@ class Meta extends Entity_Handler {
 			'meta_type' => $meta_type,
 			// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Not a database query, just webhook payload data
 			'meta_key'  => $meta_key,
-		);
+		) + $this->get_entity_payload( $meta_type, $object_id );
 	}
 
 	/**

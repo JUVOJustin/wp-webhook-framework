@@ -36,7 +36,6 @@ class Post_Webhook extends Webhook {
 	public function __construct( string $name = 'post' ) {
 		parent::__construct( $name );
 
-		// Get dispatcher from registry
 		$this->post_handler = new Post();
 	}
 

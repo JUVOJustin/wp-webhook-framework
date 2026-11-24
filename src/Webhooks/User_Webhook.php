@@ -36,7 +36,6 @@ class User_Webhook extends Webhook {
 	public function __construct( string $name = 'user' ) {
 		parent::__construct( $name );
 
-		// Get dispatcher from registry
 		$this->user_handler = new User();
 	}
 
@@ -46,7 +45,7 @@ class User_Webhook extends Webhook {
 	public function init(): void {
 		add_action( 'user_register', array( $this, 'on_user_register' ), 10, 1 );
 		add_action( 'profile_update', array( $this, 'on_profile_update' ), 10, 1 );
-		add_action( 'deleted_user', array( $this, 'on_deleted_user' ), 10, 1 );
+		add_action( 'deleted_user', array( $this, 'on_deleted_user' ), 10, 3 );
 	}
 
 	/**
@@ -72,10 +71,12 @@ class User_Webhook extends Webhook {
 	/**
 	 * Handle user deletion event.
 	 *
-	 * @param int $user_id The user ID.
+	 * @param int $user_id  The user ID.
 	 */
 	public function on_deleted_user( int $user_id ): void {
-		$payload = $this->user_handler->prepare_payload( $user_id );
+		// WordPress supplies the deleted object as an extra hook argument.
+		$user    = func_get_args()[2] ?? null;
+		$payload = $user instanceof \WP_User ? $this->user_handler->payload_from_user( $user ) : $this->user_handler->prepare_payload( $user_id );
 		$this->emit( 'delete', 'user', $user_id, $payload );
 	}
 

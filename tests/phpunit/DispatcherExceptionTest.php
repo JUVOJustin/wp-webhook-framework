@@ -149,6 +149,25 @@ final class DispatcherExceptionTest extends WPWF_Webhook_Test_Case {
 	}
 
 	/**
+	 * Older filters that return an empty array still allow built-in events through.
+	 */
+	public function test_empty_filtered_identity_payload_still_schedules_builtin_event(): void {
+		$filter = static fn( array $payload, string $entity ): array => 'post' === $entity ? array() : $payload;
+		add_filter( 'wpwf_payload', $filter, 10, 2 );
+
+		try {
+			$post_id = self::factory()->post->create();
+		} finally {
+			remove_filter( 'wpwf_payload', $filter );
+		}
+
+		$actions = $this->get_scheduled_actions_by_webhook_name( 'post' );
+		$this->assertCount( 1, $actions );
+		$this->assertSame( $post_id, $actions[0]['id'] );
+		$this->assertSame( array(), $actions[0]['payload'] );
+	}
+
+	/**
 	 * Ensures an opt-out payload filter cancels dispatch without raising an exception.
 	 */
 	public function test_schedule_skips_silently_when_payload_filter_opts_out(): void {

@@ -5,26 +5,45 @@
  * @package juvo\WP_Webhook_Framework\Entities
  */
 
+declare(strict_types=1);
+
 namespace juvo\WP_Webhook_Framework\Entities;
 
 /**
  * Post entity handler.
  *
  * Transforms post data into webhook payloads.
- * Restricted to configured post types (default: empty array).
  */
 class Post extends Entity_Handler {
 
 	/**
 	 * Prepare payload for a post.
 	 *
-	 * Persists minimal event context for async delivery.
+	 * Capture the post type and slug while the entity is available.
 	 *
 	 * @param int $post_id The post ID.
 	 * @return array<string,mixed> The prepared payload data.
 	 */
 	public function prepare_payload( int $post_id ): array {
-		return array();
+		$post = 0 < $post_id ? get_post( $post_id ) : null;
+		if ( null === $post ) {
+			return array();
+		}
+
+		$slug = $post->post_name;
+		if ( 'trash' === $post->post_status ) {
+			// A restored slugless draft can retain an earlier empty meta row.
+			$original_slugs = get_post_meta( $post_id, '_wp_desired_post_slug', false );
+			$original_slug  = is_array( $original_slugs ) ? end( $original_slugs ) : false;
+			if ( is_string( $original_slug ) ) {
+				$slug = $original_slug;
+			}
+		}
+
+		return array(
+			'post_type' => $post->post_type,
+			'slug'      => $slug,
+		);
 	}
 
 	/**

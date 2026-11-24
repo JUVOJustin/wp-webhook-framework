@@ -5,6 +5,8 @@
  * @package juvo\WP_Webhook_Framework\Entities
  */
 
+declare(strict_types=1);
+
 namespace juvo\WP_Webhook_Framework\Entities;
 
 use WP_Term;
@@ -19,13 +21,32 @@ class Term extends Entity_Handler {
 	/**
 	 * Prepare payload for a term.
 	 *
-	 * Persists minimal event context for async delivery.
+	 * Capture the taxonomy and slug while the entity is available.
 	 *
 	 * @param int $term_id The term ID.
 	 * @return array<string,mixed> The prepared payload data.
 	 */
 	public function prepare_payload( int $term_id ): array {
-		return array();
+		$term = get_term( $term_id );
+		if ( ! ( $term instanceof WP_Term ) ) {
+			return array();
+		}
+
+		return $this->payload_from_term( $term );
+	}
+
+	/**
+	 * Capture identity from the object WordPress retains during deletion.
+	 *
+	 * @internal
+	 * @param WP_Term $term The event's term.
+	 * @return array<string,mixed> The event-time identity fields.
+	 */
+	public function payload_from_term( WP_Term $term ): array {
+		return array(
+			'taxonomy' => $term->taxonomy,
+			'slug'     => $term->slug,
+		);
 	}
 
 	/**

@@ -82,35 +82,28 @@ See [Notifications](./notifications.mdx) for built-in notification handlers.
 
 ### `wpwf_payload`
 
-Filter webhook payloads before scheduling. Payloads contain event-time fields only; derived fields are added at acceptance for stacks, or at delivery for legacy and immediate modes. Return false to prevent webhook scheduling.
+Use this filter to change an event before queuing or immediate delivery. The
+built-in handlers supply the [entity fields](#payload-structure) here. The
+dispatcher adds `action`, `entity` and `id` to the outgoing body later. It derives
+`rest_url` at acceptance for stacked updates and at send time for other deliveries.
+
+Return `false` or `null` to skip the event. Returning an empty array for a
+built-in post, term or user payload containing only its default identity fields
+keeps the event. Emptying a populated meta or custom payload triggers
+`webhook_payload_empty`.
 
 **Parameters:**
 - `$payload` (array<string,mixed>) - The webhook payload data
 - `$entity` (string) - The entity type (post, term, user, meta)
 - `$id` (int|string) - The entity ID
 
-**Returns:** array<string,mixed>|false
+**Returns:** `array<string,mixed>|false|null`
 
 ```php
-// Prevent delete webhooks
-add_filter( 'wpwf_payload', function ( array $payload, string $entity, int|string $id ): array {
-    if ( 'delete' === $payload['action'] ) {
-        return false;
-    }
-    return $payload;
-}, 10, 3 );
-
-// Enrich user webhooks
-add_filter( 'wpwf_payload', function ( array $payload, string $entity, int|string $id ): array {
-    if ( 'user' !== $entity ) {
-        return $payload;
-    }
-    $user = get_userdata( (int) $id );
-    if ( $user ) {
-        $payload['email'] = $user->user_email;
-    }
-    return $payload;
-}, 10, 3 );
+// Skip category events, including changes to category metadata.
+add_filter( 'wpwf_payload', static function ( array $payload ): array|false {
+    return 'category' === ( $payload['taxonomy'] ?? null ) ? false : $payload;
+} );
 ```
 
 ### `wpwf_request_body`
@@ -342,27 +335,41 @@ add_filter( 'wpwf_retry_delay', fn() => 300 );
 
 ## Payload Structure
 
-Event fields (post) remain at the root in every delivery mode. Scheduled updates
-add `timestamp` and flat `aggregated_events`; see the [stacking format](./update-stacking.mdx):
+A receiver can identify a deleted post from the body even after WordPress
+removes the resource. For example, a deletion of a custom post type with REST
+support disabled sends the following body.
 
 ```json
 {
-  "action": "create|update|delete",
-  "entity": "post|term|user|meta",
+  "action": "delete",
+  "entity": "post",
   "id": 123,
-  "post_type": "post"
+  "post_type": "product",
+  "slug": "spring-collection"
 }
 ```
 
-**Persisted fields (event-time):**
-- **Meta**: `meta_type`, `meta_key`
-- **Meta**: `acf_field_key`, `acf_field_name` (if ACF field)
+Built-in create, update, and delete events capture the following fields before
+the payload filter runs. Scheduled deliveries retain their event-time values.
 
-**Derived fields (at acceptance for stacks, otherwise at send time):**
-- **Post**: `post_type`
-- **Term**: `taxonomy`
-- **User**: `roles` (array)
-- `rest_url`
+| Entity | Default fields |
+| --- | --- |
+| Post | `post_type`, `slug` |
+| Term | `taxonomy`, `slug` |
+| User | `roles` (array), `username` (WordPress login) |
+
+For trashed posts, `slug` uses the original slug when WordPress retained it.
+A draft that never had a slug can send an empty string.
+
+Meta events include `meta_type` and `meta_key` plus the available parent
+identity. A bulk deletion by meta key has no individual parent to identify.
+During user deletion, WordPress removes metadata row by row. Once it removes
+the capabilities row, subsequent meta events can carry an empty `roles` list.
+The final user delete uses the user object retained by WordPress.
+
+With [update stacking](./update-stacking.mdx), each entry in `aggregated_events`
+contains the identity captured for that event. With legacy scheduling, the first
+matching pending event supplies the identity for that delivery.
 
 ## Filter Priority
 

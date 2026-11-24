@@ -14,6 +14,9 @@ use juvo\WP_Webhook_Framework\Entities\Meta;
 use juvo\WP_Webhook_Framework\Entities\Post;
 use juvo\WP_Webhook_Framework\Entities\Term;
 use juvo\WP_Webhook_Framework\Entities\User;
+use juvo\WP_Webhook_Framework\Webhooks\Post_Webhook;
+use juvo\WP_Webhook_Framework\Webhooks\Term_Webhook;
+use juvo\WP_Webhook_Framework\Webhooks\User_Webhook;
 use WP_Exception;
 
 /**
@@ -38,7 +41,7 @@ class Dispatcher {
 	public function schedule( string $action, string $entity, int|string $id, string $url = '', array $payload = array(), array $headers = array() ): void {
 		$this->ensure_action_scheduler_available();
 
-		$dispatch_data = $this->resolve_dispatch_data( $entity, $id, $url, $payload );
+		$dispatch_data = $this->resolve_dispatch_data( $entity, $id, $url, $payload, (string) ( $headers['wpwf-webhook-name'] ?? '' ) );
 		if ( null === $dispatch_data ) {
 			return;
 		}
@@ -149,7 +152,7 @@ class Dispatcher {
 	 * @throws WP_Exception If URL/payload/webhook configuration is invalid.
 	 */
 	public function dispatch_immediately( string $action, string $entity, int|string $id, string $url = '', array $payload = array(), array $headers = array() ): void {
-		$dispatch_data = $this->resolve_dispatch_data( $entity, $id, $url, $payload );
+		$dispatch_data = $this->resolve_dispatch_data( $entity, $id, $url, $payload, (string) ( $headers['wpwf-webhook-name'] ?? '' ) );
 		if ( null === $dispatch_data ) {
 			return;
 		}
@@ -181,15 +184,16 @@ class Dispatcher {
 	/**
 	 * Resolve URL and payload through shared dispatch validation.
 	 *
-	 * @param string              $entity  The entity type.
-	 * @param int|string          $id      The entity ID.
-	 * @param string              $url     The webhook URL.
-	 * @param array<string,mixed> $payload The payload data.
+	 * @param string              $entity       The entity type.
+	 * @param int|string          $id           The entity ID.
+	 * @param string              $url          The webhook URL.
+	 * @param array<string,mixed> $payload      The payload data.
+	 * @param string              $webhook_name The registered emitter.
 	 * @return array{url: string, payload: array<string,mixed>}|null
 	 *
 	 * @throws WP_Exception If URL or payload validation fails.
 	 */
-	private function resolve_dispatch_data( string $entity, int|string $id, string $url, array $payload ): ?array {
+	private function resolve_dispatch_data( string $entity, int|string $id, string $url, array $payload, string $webhook_name ): ?array {
 		$url = apply_filters( 'wpwf_url', $url, $entity, $id );
 
 		if ( empty( $url ) ) {
@@ -211,7 +215,17 @@ class Dispatcher {
 		}
 
 		if ( empty( $payload ) && ! empty( $original_payload ) ) {
-			throw new WP_Exception( 'webhook_payload_empty' );
+			// Built-in entity hooks previously passed an empty payload to this filter.
+			$webhook        = '' !== $webhook_name ? Webhook_Registry::instance()->get( $webhook_name ) : null;
+			$default_fields = match ( true ) {
+				'post' === $entity && $webhook instanceof Post_Webhook => array( 'post_type', 'slug' ),
+				'term' === $entity && $webhook instanceof Term_Webhook => array( 'taxonomy', 'slug' ),
+				'user' === $entity && $webhook instanceof User_Webhook => array( 'roles', 'username' ),
+				default => array(),
+			};
+			if ( array_diff( array_keys( $original_payload ), $default_fields ) ) {
+				throw new WP_Exception( 'webhook_payload_empty' );
+			}
 		}
 
 		return array(

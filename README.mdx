@@ -8,16 +8,16 @@ description: Entity-level webhooks for WordPress with scheduled and immediate de
 [![Quality Check](https://github.com/JUVOJustin/wp-webhook-framework/actions/workflows/quality-check.yml/badge.svg)](https://github.com/JUVOJustin/wp-webhook-framework/actions/workflows/quality-check.yml)
 [![Integration Tests](https://github.com/JUVOJustin/wp-webhook-framework/actions/workflows/integration-tests.yml/badge.svg)](https://github.com/JUVOJustin/wp-webhook-framework/actions/workflows/integration-tests.yml)
 
-Entity-level webhooks for WordPress using Action Scheduler with optional immediate delivery mode. Sends POSTs for create/update/delete of posts, terms, and users. Meta changes trigger the entity update. ACF updates include field context. Features intelligent failure monitoring with email notifications, automatic blocking, and comprehensive filtering options.
+Entity-level webhooks for WordPress using Action Scheduler with optional immediate delivery mode. Sends POSTs for create/update/delete of posts, terms, and users. Meta changes trigger the entity update. ACF updates identify the affected field by its meta key. Features intelligent failure monitoring with email notifications, automatic blocking, and comprehensive filtering options.
 
 ## Features
 
 - **Delivery mode control** - Choose scheduled async delivery (default) or immediate synchronous first attempt
 - **Action Scheduler dispatch** - 60s windows for stacked updates; 5s initial delay for other queued webhooks
 - **Update stacking** - Aggregate scheduled updates in fixed 60-second windows, retaining every accepted payload and a stable delivery ID; opt out to retain legacy pending deduplication.
-- **Entity-aware delivery payloads** - Derives post_type, taxonomy, and roles at acceptance for stacks, or at send time for legacy delivery
-- **Send-time enrichment** - Adds REST URLs when available
-- **ACF integration** - Adds field key/name context to meta changes
+- **Entity-aware delivery payloads** - Captures entity identity at event time for immediate and scheduled delivery
+- **REST URLs** - Adds resource URLs at stack acceptance or delivery when available
+- **ACF integration** - Uses the ACF field name as the meta key
 - **Registry pattern** - Extensible webhook system with custom configurations
 - **Notification system** - Opt-in email alerts for failures, extensible notification handlers
 - **Failure monitoring** - Automatic blocking after consecutive failures
@@ -110,13 +110,13 @@ Immediate mode sends the first attempt in the current request. If it fails, retr
 ### Filter Payloads
 
 ```php
-// Prevent delete webhooks
-add_filter('wpwf_payload', function($payload, $entity, $id) {
-    if ($payload['action'] === 'delete') {
-        return false; // Return false to prevent webhook
+// Omit WordPress logins from newly accepted user and user-meta events.
+add_filter( 'wpwf_payload', static function ( array $payload, string $entity ): array {
+    if ( 'user' === $entity || ( 'meta' === $entity && 'user' === ( $payload['meta_type'] ?? null ) ) ) {
+        unset( $payload['username'] );
     }
     return $payload;
-}, 10, 3);
+}, 10, 2 );
 ```
 
 See [Hooks and Filters](./docs/hooks-and-filters.mdx) for all available hooks and filters.
@@ -162,19 +162,19 @@ Example legacy or immediate post webhook payload:
   "action": "update",
   "entity": "post",
   "id": 123,
-  "post_type": "post"
+  "post_type": "post",
+  "slug": "spring-news",
+  "rest_url": "https://example.com/wp-json/wp/v2/posts/123"
 }
 ```
 
-**Persisted fields (event-time):**
-- Meta: `meta_type`, `meta_key`
-- Meta: `acf_field_key`, `acf_field_name` (if ACF field)
+See the [default payload fields](./docs/hooks-and-filters.mdx#payload-structure) for each entity.
 
-**Derived fields (when available at acceptance for stacks, otherwise at send time):**
-- Post: `post_type`
-- Term: `taxonomy`
-- User: `roles[]`
-- `rest_url`
+### Payload changes in 4.1.1
+
+User and user-meta receivers receive the WordPress login in `username` by
+default, including on deletion. Use the payload filter above to omit it. Jobs
+and stack entries accepted before upgrading can lack the new identity fields.
 
 ## Failure Monitoring
 
