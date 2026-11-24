@@ -34,7 +34,7 @@ class Post extends Entity_Handler {
 		$slug = $post->post_name;
 		if ( 'trash' === $post->post_status ) {
 			// A restored slugless draft can retain an earlier empty meta row.
-			$original_slugs = get_post_meta( $post_id, '_wp_desired_post_slug' );
+			$original_slugs = get_post_meta( $post_id, '_wp_desired_post_slug', false );
 			$original_slug  = is_array( $original_slugs ) ? end( $original_slugs ) : false;
 			if ( is_string( $original_slug ) ) {
 				$slug = $original_slug;
