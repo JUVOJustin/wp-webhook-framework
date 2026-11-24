@@ -170,25 +170,11 @@ Example legacy or immediate post webhook payload:
 
 See the [default payload fields](./docs/hooks-and-filters.mdx#payload-structure) for each entity.
 
-### Upgrading to 5.0.0
+### Payload changes in 4.1.1
 
-User and user-meta receivers now receive the WordPress login in `username` by
-default, including on deletion. Use the payload filter above to omit it. Existing
-jobs and accepted stack entries can lack identity fields introduced in 5.0.0.
-
-Update subclasses that override any of the following public methods before
-upgrading. Append the optional parameters shown here to the existing signature.
-
-| Overridden method | Additional parameters |
-| --- | --- |
-| `Entities\Post::prepare_payload()`, `Post_Webhook::on_delete_post()` | `?\WP_Post $post = null` |
-| `Entities\Term::prepare_payload()`, `Term_Webhook::on_deleted_term()` | `?\WP_Term $term = null` |
-| `Entities\User::prepare_payload()` | `?\WP_User $user = null` |
-| `User_Webhook::on_deleted_user()` | `?int $reassign = null, ?\WP_User $user = null` |
-
-Review any `wpwf_payload` filter that returns an empty array. Built-in entity
-events now start with identity fields, and emptying a populated payload raises
-`webhook_payload_empty`. Return `false` to skip the event.
+User and user-meta receivers receive the WordPress login in `username` by
+default, including on deletion. Use the payload filter above to omit it. Jobs
+and stack entries accepted before upgrading can lack the new identity fields.
 
 ## Failure Monitoring
 

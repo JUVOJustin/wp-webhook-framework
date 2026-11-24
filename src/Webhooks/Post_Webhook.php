@@ -44,7 +44,7 @@ class Post_Webhook extends Webhook {
 	 */
 	public function init(): void {
 		add_action( 'save_post', array( $this, 'on_save_post' ), 10, 3 );
-		add_action( 'before_delete_post', array( $this, 'on_delete_post' ), 10, 2 );
+		add_action( 'before_delete_post', array( $this, 'on_delete_post' ), 10, 1 );
 	}
 
 	/**
@@ -60,22 +60,21 @@ class Post_Webhook extends Webhook {
 		}
 
 		$action  = $update ? 'update' : 'create';
-		$payload = $this->post_handler->prepare_payload( $post_id, $post );
+		$payload = $this->post_handler->prepare_payload( $post_id );
 		$this->emit( $action, 'post', $post_id, $payload );
 	}
 
 	/**
 	 * Handle post deletion event.
 	 *
-	 * @param int           $post_id The post ID.
-	 * @param \WP_Post|null $post    The post before deletion, if supplied.
+	 * @param int $post_id The post ID.
 	 */
-	public function on_delete_post( int $post_id, ?\WP_Post $post = null ): void {
+	public function on_delete_post( int $post_id ): void {
 		if ( wp_is_post_revision( $post_id ) || wp_is_post_autosave( $post_id ) ) {
 			return;
 		}
 
-		$payload = $this->post_handler->prepare_payload( $post_id, $post );
+		$payload = $this->post_handler->prepare_payload( $post_id );
 		$this->emit( 'delete', 'post', $post_id, $payload );
 	}
 

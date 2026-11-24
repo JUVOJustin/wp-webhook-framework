@@ -88,7 +88,9 @@ dispatcher adds `action`, `entity` and `id` to the outgoing body later. It deriv
 `rest_url` at acceptance for stacked updates and at send time for other deliveries.
 
 Return `false` or `null` to skip the event. Returning an empty array for a
-previously populated payload triggers `webhook_payload_empty` and drops the event.
+built-in post, term or user payload containing only its default identity fields
+keeps the event. Emptying a populated meta or custom payload triggers
+`webhook_payload_empty`.
 
 **Parameters:**
 - `$payload` (array<string,mixed>) - The webhook payload data

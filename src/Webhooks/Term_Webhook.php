@@ -75,13 +75,14 @@ class Term_Webhook extends Webhook {
 	/**
 	 * Handle term deletion event.
 	 *
-	 * @param int           $term_id  The term ID.
-	 * @param int           $tt_id    The term taxonomy ID.
-	 * @param string        $taxonomy The taxonomy name.
-	 * @param \WP_Term|null $term     The copy retained by WordPress at deletion.
+	 * @param int    $term_id  The term ID.
+	 * @param int    $tt_id    The term taxonomy ID.
+	 * @param string $taxonomy The taxonomy name.
 	 */
-	public function on_deleted_term( int $term_id, int $tt_id, string $taxonomy, ?\WP_Term $term = null ): void {
-		$payload = $this->term_handler->prepare_payload( $term_id, $term ) + array( 'taxonomy' => $taxonomy );
+	public function on_deleted_term( int $term_id, int $tt_id, string $taxonomy ): void {
+		// WordPress supplies the deleted object as an extra hook argument.
+		$term    = func_get_args()[3] ?? null;
+		$payload = $term instanceof \WP_Term ? $this->term_handler->payload_from_term( $term ) : array( 'taxonomy' => $taxonomy );
 		$this->emit( 'delete', 'term', $term_id, $payload );
 	}
 

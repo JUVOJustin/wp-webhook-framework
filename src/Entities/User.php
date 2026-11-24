@@ -23,16 +23,26 @@ class User extends Entity_Handler {
 	 *
 	 * Capture the roles and login name while the entity is available.
 	 *
-	 * @param int          $user_id The user ID.
-	 * @param WP_User|null $user    Object retained by the event hook.
+	 * @param int $user_id The user ID.
 	 * @return array<string,mixed> The prepared payload data.
 	 */
-	public function prepare_payload( int $user_id, ?WP_User $user = null ): array {
-		$user ??= get_userdata( $user_id );
+	public function prepare_payload( int $user_id ): array {
+		$user = get_userdata( $user_id );
 		if ( ! ( $user instanceof WP_User ) ) {
 			return array();
 		}
 
+		return $this->payload_from_user( $user );
+	}
+
+	/**
+	 * Capture identity from the object WordPress retains during deletion.
+	 *
+	 * @internal
+	 * @param WP_User $user The event's user.
+	 * @return array<string,mixed> The event-time identity fields.
+	 */
+	public function payload_from_user( WP_User $user ): array {
 		return array(
 			'roles'    => array_values( $user->roles ),
 			'username' => $user->user_login,

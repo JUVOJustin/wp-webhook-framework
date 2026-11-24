@@ -23,16 +23,26 @@ class Term extends Entity_Handler {
 	 *
 	 * Capture the taxonomy and slug while the entity is available.
 	 *
-	 * @param int          $term_id The term ID.
-	 * @param WP_Term|null $term    Object retained by the event hook.
+	 * @param int $term_id The term ID.
 	 * @return array<string,mixed> The prepared payload data.
 	 */
-	public function prepare_payload( int $term_id, ?WP_Term $term = null ): array {
-		$term ??= get_term( $term_id );
+	public function prepare_payload( int $term_id ): array {
+		$term = get_term( $term_id );
 		if ( ! ( $term instanceof WP_Term ) ) {
 			return array();
 		}
 
+		return $this->payload_from_term( $term );
+	}
+
+	/**
+	 * Capture identity from the object WordPress retains during deletion.
+	 *
+	 * @internal
+	 * @param WP_Term $term The event's term.
+	 * @return array<string,mixed> The event-time identity fields.
+	 */
+	public function payload_from_term( WP_Term $term ): array {
 		return array(
 			'taxonomy' => $term->taxonomy,
 			'slug'     => $term->slug,

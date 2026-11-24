@@ -71,12 +71,12 @@ class User_Webhook extends Webhook {
 	/**
 	 * Handle user deletion event.
 	 *
-	 * @param int           $user_id  The user ID.
-	 * @param int|null      $reassign User receiving the deleted user's content.
-	 * @param \WP_User|null $user     User retained by WordPress at deletion.
+	 * @param int $user_id  The user ID.
 	 */
-	public function on_deleted_user( int $user_id, ?int $reassign = null, ?\WP_User $user = null ): void {
-		$payload = $this->user_handler->prepare_payload( $user_id, $user );
+	public function on_deleted_user( int $user_id ): void {
+		// WordPress supplies the deleted object as an extra hook argument.
+		$user    = func_get_args()[2] ?? null;
+		$payload = $user instanceof \WP_User ? $this->user_handler->payload_from_user( $user ) : $this->user_handler->prepare_payload( $user_id );
 		$this->emit( 'delete', 'user', $user_id, $payload );
 	}
 

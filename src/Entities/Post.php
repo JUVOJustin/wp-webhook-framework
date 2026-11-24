@@ -21,12 +21,11 @@ class Post extends Entity_Handler {
 	 *
 	 * Capture the post type and slug while the entity is available.
 	 *
-	 * @param int           $post_id The post ID.
-	 * @param \WP_Post|null $post    Object retained by the event hook.
+	 * @param int $post_id The post ID.
 	 * @return array<string,mixed> The prepared payload data.
 	 */
-	public function prepare_payload( int $post_id, ?\WP_Post $post = null ): array {
-		$post ??= 0 < $post_id ? get_post( $post_id ) : null;
+	public function prepare_payload( int $post_id ): array {
+		$post = 0 < $post_id ? get_post( $post_id ) : null;
 		if ( null === $post ) {
 			return array();
 		}
